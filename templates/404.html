@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}{{ 'Error' if error else 'Not found' }}{% endblock %}
+{% block content %}
+<div class="container">
+  <section class="notfound">
+    {% if error %}
+    <div class="big grad-text">500</div>
+    <h1>Something went wrong</h1>
+    <p>The server hit an unexpected error while building this page. The details were logged to the terminal running <code>python app.py</code>.</p>
+    {% else %}
+    <div class="big grad-text">404</div>
+    <h1>This column is full</h1>
+    <p>There is no page at this address. It may have moved, or the link may have a typo. Try one of these instead.</p>
+    {% endif %}
+    <div class="btn-row" style="justify-content: center;">
+      <a class="btn btn-primary" href="/">{{ icon('home', 16) }}Home</a>
+      <a class="btn" href="/play">{{ icon('play', 16) }}Play</a>
+      <a class="btn" href="/arena">{{ icon('arena', 16) }}Arena</a>
+      <a class="btn" href="/learn">{{ icon('learn', 16) }}Learn</a>
+    </div>
+  </section>
+</div>
+{% endblock %}

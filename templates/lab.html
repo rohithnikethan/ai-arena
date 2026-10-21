@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Lab{% endblock %}
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
+{% endblock %}
+{% block content %}
+<div class="container">
+  <header class="page-head">
+    <div>
+      <div class="eyebrow">Benchmark lab</div>
+      <h1>Measure the minds</h1>
+      <p>Run head-to-head tournaments and see who wins, how long each agent thinks and how many positions it examines. Then measure exactly how much work alpha-beta pruning saves.</p>
+    </div>
+  </header>
+
+  <div class="lab-grid">
+    <!-- Tournament -->
+    <section class="card card-pad" aria-labelledby="t-title">
+      <div class="card-head">
+        <div>
+          <h2 class="card-title" id="t-title">{{ icon('trophy', 18) }}Tournament</h2>
+          <div class="card-sub">Agents alternate who moves first. Results are deterministic for a given seed.</div>
+        </div>
+      </div>
+      <form class="lab-form" id="match-form" novalidate>
+        <div class="picker-pair" id="lab-a"></div>
+        <div class="picker-pair" id="lab-b"></div>
+        <div class="field">
+          <label class="field-label" for="games"><span>Games</span><span class="field-value" id="games-value">10</span></label>
+          <input type="range" id="games" min="2" max="50" step="2" value="10">
+        </div>
+        <button class="btn btn-primary" type="submit" id="btn-match">{{ icon('play', 16) }}Run tournament</button>
+      </form>
+
+      <div class="summary-row" id="match-summary">
+        <div class="chip"><div class="chip-label"><span class="mini-disc" style="background:#8b5cf6"></span>Agent A wins</div><div class="chip-value" id="sum-a">—</div></div>
+        <div class="chip"><div class="chip-label"><span class="mini-disc" style="background:#22d3ee"></span>Agent B wins</div><div class="chip-value" id="sum-b">—</div></div>
+        <div class="chip"><div class="chip-label"><span class="mini-disc" style="background:#6b7280"></span>Draws</div><div class="chip-value" id="sum-d">—</div></div>
+        <div class="chip"><div class="chip-label">{{ icon('clock', 13) }}Wall time</div><div class="chip-value" id="sum-t">—</div></div>
+      </div>
+
+      <div class="lab-results">
+        <div class="chart-card" id="card-doughnut">
+          <h4>Results</h4>
+          <div class="chart-holder"><canvas id="chart-doughnut" aria-label="Wins, losses and draws" role="img"></canvas>
+            <div class="empty" data-empty><span class="empty-icon">{{ icon('trophy', 20) }}</span><span>Run a tournament to see results.</span></div>
+          </div>
+          <div class="loading-veil"><div class="veil-inner"><span class="spinner"></span>Playing games…</div></div>
+        </div>
+        <div class="chart-card" id="card-time">
+          <h4>Average time per move</h4>
+          <div class="chart-holder"><canvas id="chart-time" aria-label="Average time per move" role="img"></canvas>
+            <div class="empty" data-empty><span class="empty-icon">{{ icon('clock', 20) }}</span><span>Thinking time per move appears here.</span></div>
+          </div>
+          <div class="loading-veil"><div class="veil-inner"><span class="spinner"></span>Timing…</div></div>
+        </div>
+        <div class="chart-card" id="card-nodes">
+          <h4>Average nodes per move</h4>
+          <div class="chart-holder"><canvas id="chart-nodes" aria-label="Average nodes searched per move" role="img"></canvas>
+            <div class="empty" data-empty><span class="empty-icon">{{ icon('layers', 20) }}</span><span>Positions examined per move appear here.</span></div>
+          </div>
+          <div class="loading-veil"><div class="veil-inner"><span class="spinner"></span>Counting nodes…</div></div>
+        </div>
+      </div>
+
+      <div class="table-wrap" id="match-table-wrap" hidden>
+        <table class="table" aria-label="Game results">
+          <thead><tr><th>Game</th><th>First move</th><th>Winner</th><th class="num">Length</th><th>Moves (columns)</th></tr></thead>
+          <tbody id="match-table"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Pruning power -->
+    <section class="card card-pad" aria-labelledby="p-title">
+      <div class="card-head">
+        <div>
+          <h2 class="card-title" id="p-title">{{ icon('scissors', 18) }}Pruning power</h2>
+          <div class="card-sub">Nodes searched to pick one move, at each depth. Same decision, very different amounts of work.</div>
+        </div>
+      </div>
+      <form class="lab-form is-prune" id="prune-form" novalidate>
+        <div class="field">
+          <label class="field-label" for="max-depth"><span>Depths 1 to</span><span class="field-value" id="max-depth-value">6</span></label>
+          <input type="range" id="max-depth" min="2" max="7" step="1" value="6">
+          <span class="field-hint">Plain minimax is capped at depth 6 (it gets slow).</span>
+        </div>
+        <div class="field">
+          <span class="field-label">Position</span>
+          <div class="seg" role="radiogroup" aria-label="Position to analyse">
+            <label><input type="radio" name="position" value="empty" checked><span>Empty board</span></label>
+            <label><input type="radio" name="position" value="mid"><span>Mid-game</span></label>
+          </div>
+          <span class="field-hint">Mid-game: 8 discs already played.</span>
+        </div>
+        <button class="btn btn-primary" type="submit" id="btn-prune">{{ icon('zap', 16) }}Run experiment</button>
+      </form>
+
+      <div class="prune-layout">
+        <div class="chart-card" id="card-prune">
+          <h4>Nodes searched vs depth (log scale)</h4>
+          <div class="chart-holder tall"><canvas id="chart-prune" aria-label="Nodes searched by depth for minimax and alpha-beta" role="img"></canvas>
+            <div class="empty" data-empty><span class="empty-icon">{{ icon('chart', 20) }}</span><span>Run the experiment to compare minimax with alpha-beta.</span></div>
+          </div>
+          <div class="loading-veil"><div class="veil-inner"><span class="spinner"></span>Searching every depth…</div></div>
+        </div>
+        <div class="prune-side">
+          <div class="callout" id="prune-callout">
+            <div class="callout-num grad-text" id="prune-pct">—</div>
+            <p id="prune-text">of the minimax tree is <strong>pruned</strong> by alpha-beta with move ordering. Run the experiment to measure it.</p>
+          </div>
+          <div class="note">
+            {{ icon('info', 18) }}
+            <p>Alpha-beta always returns the <strong>same value</strong> as minimax. Ordering moves centre-first makes cut-offs happen earlier, which is why the cyan line sits so far below the others.</p>
+          </div>
+        </div>
+      </div>
+      <div class="table-wrap" id="prune-table-wrap" hidden>
+        <table class="table" aria-label="Nodes and time per depth">
+          <thead><tr><th>Depth</th><th class="num">Minimax nodes</th><th class="num">α-β nodes</th><th class="num">α-β + ordering</th><th class="num">Minimax ms</th><th class="num">α-β ms</th><th class="num">α-β + ord. ms</th><th class="num">Pruned</th></tr></thead>
+          <tbody id="prune-table"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/lab.js') }}" defer></script>
+{% endblock %}

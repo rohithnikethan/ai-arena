@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Learn{% endblock %}
+{% block content %}
+<div class="container">
+  <header class="page-head">
+    <div>
+      <div class="eyebrow">Theory</div>
+      <h1>How the agents think</h1>
+      <p>The ideas behind every agent in the arena: game trees, minimax, alpha-beta pruning, heuristic evaluation and Monte Carlo Tree Search, with the costs of each.</p>
+    </div>
+  </header>
+
+  <div class="learn-layout">
+    <nav class="card toc" aria-label="On this page">
+      <div class="toc-title">On this page</div>
+      <ol>
+        <li><a href="#game-trees">Game trees</a></li>
+        <li><a href="#minimax">Minimax</a></li>
+        <li><a href="#alpha-beta">Alpha-beta pruning</a></li>
+        <li><a href="#heuristic">Heuristic evaluation</a></li>
+        <li><a href="#mcts">Monte Carlo Tree Search</a></li>
+        <li><a href="#complexity">Complexity</a></li>
+        <li><a href="#comparison">Which agent wins when</a></li>
+      </ol>
+    </nav>
+
+    <article class="prose">
+      <!-- 1 -->
+      <section id="game-trees">
+        <h2><span class="sec-num">01</span>Game trees</h2>
+        <p>Connect Four is a <strong>two-player, zero-sum, deterministic game of perfect information</strong>: both players see the whole board, there is no chance involved, and one player's gain is exactly the other's loss. Games like this can be described as a <strong>game tree</strong>. The root is the current position, each edge is a legal move (one of at most seven columns), and each child is the position that results. Leaves are positions where the game is over (a win, a loss or a full board), or positions where we choose to stop looking.</p>
+        <p>The <strong>branching factor</strong> <em>b</em> is the number of legal moves (at most 7 here) and the <strong>depth</strong> <em>d</em> is how many plies (single moves) ahead we look. A tree of depth <em>d</em> has about <em>b<sup>d</sup></em> leaves: 7<sup>4</sup> = 2,401, 7<sup>6</sup> = 117,649 and 7<sup>8</sup> ≈ 5.8 million. The full game has about 4.5 trillion reachable positions and can last up to 42 plies, so the complete tree cannot be searched in real time. Every practical agent therefore searches only a small part of it.</p>
+        <div class="note">{{ icon('info', 18) }}<p>Connect Four was solved in 1988, independently by James D. Allen and Victor Allis: with perfect play the first player wins by starting in the centre column. Our agents do not use that solution. They have to work things out by searching.</p></div>
+      </section>
+
+      <!-- 2 -->
+      <section id="minimax">
+        <h2><span class="sec-num">02</span>Minimax</h2>
+        <p>Minimax assumes that both players play optimally. The player to move (<strong>MAX</strong>) wants the highest value; the opponent (<strong>MIN</strong>) wants the lowest. Values are computed bottom-up: a leaf gets a score, a MIN node takes the minimum of its children, and a MAX node takes the maximum. The move at the root that leads to the best backed-up value is the one played.</p>
+        <figure class="figure">
+          <svg viewBox="0 0 640 250" role="img" aria-label="A depth-two minimax tree. The MAX root has three MIN children with values 3, 2 and 2, so the root value is 3.">
+            <defs><linearGradient id="learn-grad" x1="0" x2="1"><stop offset="0" stop-color="#8b5cf6"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs>
+            <path class="f-line f-best" d="M320 50 L120 104"/><path class="f-line" d="M320 50 L320 104"/><path class="f-line" d="M320 50 L520 104"/>
+            <path class="f-line f-best" d="M120 134 L60 202"/><path class="f-line" d="M120 134 L120 202"/><path class="f-line" d="M120 134 L180 202"/>
+            <path class="f-line" d="M320 134 L260 202"/><path class="f-line" d="M320 134 L320 202"/><path class="f-line" d="M320 134 L380 202"/>
+            <path class="f-line" d="M520 134 L460 202"/><path class="f-line" d="M520 134 L520 202"/><path class="f-line" d="M520 134 L580 202"/>
+            <polygon class="f-max" points="320,16 298,52 342,52"/><text class="f-text-strong" x="320" y="46" text-anchor="middle">3</text>
+            <polygon class="f-min" points="98,102 142,102 120,138"/><text class="f-text-strong" x="120" y="116" text-anchor="middle">3</text>
+            <polygon class="f-min" points="298,102 342,102 320,138"/><text class="f-text-strong" x="320" y="116" text-anchor="middle">2</text>
+            <polygon class="f-min" points="498,102 542,102 520,138"/><text class="f-text-strong" x="520" y="116" text-anchor="middle">2</text>
+            <g>
+              <rect class="f-node" x="44" y="202" width="32" height="24" rx="6"/><text class="f-text" x="60" y="218" text-anchor="middle">3</text>
+              <rect class="f-node" x="104" y="202" width="32" height="24" rx="6"/><text class="f-text" x="120" y="218" text-anchor="middle">12</text>
+              <rect class="f-node" x="164" y="202" width="32" height="24" rx="6"/><text class="f-text" x="180" y="218" text-anchor="middle">8</text>
+              <rect class="f-node" x="244" y="202" width="32" height="24" rx="6"/><text class="f-text" x="260" y="218" text-anchor="middle">2</text>
+              <rect class="f-node" x="304" y="202" width="32" height="24" rx="6"/><text class="f-text" x="320" y="218" text-anchor="middle">4</text>
+              <rect class="f-node" x="364" y="202" width="32" height="24" rx="6"/><text class="f-text" x="380" y="218" text-anchor="middle">6</text>
+              <rect class="f-node" x="444" y="202" width="32" height="24" rx="6"/><text class="f-text" x="460" y="218" text-anchor="middle">14</text>
+              <rect class="f-node" x="504" y="202" width="32" height="24" rx="6"/><text class="f-text" x="520" y="218" text-anchor="middle">5</text>
+              <rect class="f-node" x="564" y="202" width="32" height="24" rx="6"/><text class="f-text" x="580" y="218" text-anchor="middle">2</text>
+            </g>
+            <text class="f-text" x="372" y="38">MAX: pick the largest</text>
+            <text class="f-text" x="560" y="124">MIN: smallest</text>
+          </svg>
+          <figcaption>Each MIN node takes the smallest leaf below it (3, 2, 2). The MAX root takes the largest of those, 3, so MAX plays the left move. The highlighted path is the <em>principal variation</em>, the line both sides are expected to play.</figcaption>
+        </figure>
+        <div class="pseudo"><span class="k">function</span> minimax(position, depth, maximizing):
+    <span class="k">if</span> depth = 0 <span class="k">or</span> game over: <span class="k">return</span> evaluate(position)
+    <span class="k">if</span> maximizing:
+        <span class="k">return</span> max(minimax(child, depth − 1, false) <span class="k">for</span> child <span class="k">in</span> children)
+    <span class="k">else</span>:
+        <span class="k">return</span> min(minimax(child, depth − 1, true)  <span class="k">for</span> child <span class="k">in</span> children)</div>
+        <p>Proven wins are scored as <code>+1,000,000 − depth</code> and losses as <code>−1,000,000 + depth</code>. Subtracting the depth makes the agent prefer the <strong>fastest</strong> win and the <strong>slowest</strong> loss. Minimax is exact within its horizon, but it pays for that: it visits every one of the roughly <em>b<sup>d</sup></em> positions, and anything beyond depth <em>d</em> is invisible to it (the <strong>horizon effect</strong>).</p>
+      </section>
+
+      <!-- 3 -->
+      <section id="alpha-beta">
+        <h2><span class="sec-num">03</span>Alpha-beta pruning</h2>
+        <p>Alpha-beta returns <strong>exactly the same value and move</strong> as minimax, but it skips branches that cannot affect the result. It carries two bounds down the tree:</p>
+        <ul>
+          <li><strong>α (alpha)</strong>: the best value MAX can already guarantee on the current path (starts at −∞).</li>
+          <li><strong>β (beta)</strong>: the best value MIN can already guarantee (starts at +∞).</li>
+        </ul>
+        <p>As soon as <strong>α ≥ β</strong> at a node, the remaining children are <em>cut off</em>. One of the players already has a better option elsewhere, so the game will never reach this node.</p>
+        <figure class="figure">
+          <svg viewBox="0 0 640 260" role="img" aria-label="The same tree searched with alpha-beta. After the first MIN node returns 3, the second MIN node finds a 2 and its remaining two leaves are pruned.">
+            <path class="f-line f-best" d="M320 50 L120 104"/><path class="f-line" d="M320 50 L320 104"/><path class="f-line" d="M320 50 L520 104"/>
+            <path class="f-line f-best" d="M120 134 L60 202"/><path class="f-line" d="M120 134 L120 202"/><path class="f-line" d="M120 134 L180 202"/>
+            <path class="f-line" d="M320 134 L260 202"/><path class="f-pruned" d="M320 134 L320 202"/><path class="f-pruned" d="M320 134 L380 202"/>
+            <path class="f-line" d="M520 134 L460 202"/><path class="f-line" d="M520 134 L520 202"/><path class="f-line" d="M520 134 L580 202"/>
+            <polygon class="f-max" points="320,16 298,52 342,52"/><text class="f-text-strong" x="320" y="46" text-anchor="middle">3</text>
+            <polygon class="f-min" points="98,102 142,102 120,138"/><text class="f-text-strong" x="120" y="116" text-anchor="middle">3</text>
+            <polygon class="f-min" points="298,102 342,102 320,138"/><text class="f-text-strong" x="320" y="116" text-anchor="middle">≤2</text>
+            <polygon class="f-min" points="498,102 542,102 520,138"/><text class="f-text-strong" x="520" y="116" text-anchor="middle">2</text>
+            <rect class="f-node" x="44" y="202" width="32" height="24" rx="6"/><text class="f-text" x="60" y="218" text-anchor="middle">3</text>
+            <rect class="f-node" x="104" y="202" width="32" height="24" rx="6"/><text class="f-text" x="120" y="218" text-anchor="middle">12</text>
+            <rect class="f-node" x="164" y="202" width="32" height="24" rx="6"/><text class="f-text" x="180" y="218" text-anchor="middle">8</text>
+            <rect class="f-node" x="244" y="202" width="32" height="24" rx="6"/><text class="f-text" x="260" y="218" text-anchor="middle">2</text>
+            <rect class="f-pruned" x="304" y="202" width="32" height="24" rx="6"/><text class="f-text" x="320" y="218" text-anchor="middle" opacity=".45">4</text>
+            <rect class="f-pruned" x="364" y="202" width="32" height="24" rx="6"/><text class="f-text" x="380" y="218" text-anchor="middle" opacity=".45">6</text>
+            <rect class="f-node" x="444" y="202" width="32" height="24" rx="6"/><text class="f-text" x="460" y="218" text-anchor="middle">14</text>
+            <rect class="f-node" x="504" y="202" width="32" height="24" rx="6"/><text class="f-text" x="520" y="218" text-anchor="middle">5</text>
+            <rect class="f-node" x="564" y="202" width="32" height="24" rx="6"/><text class="f-text" x="580" y="218" text-anchor="middle">2</text>
+            <text class="f-text" x="348" y="174" font-size="16">✂</text>
+            <text class="f-text" x="350" y="250" text-anchor="middle">pruned: 2 ≤ α = 3</text>
+            <text class="f-text" x="160" y="88">α = 3 after this branch</text>
+          </svg>
+          <figcaption>After the left branch, MAX knows it can get at least 3 (α = 3). In the middle branch MIN's first reply already gives 2, so that node is worth at most 2. MAX will never choose it, and the leaves 4 and 6 are never looked at.</figcaption>
+        </figure>
+        <div class="pseudo"><span class="k">function</span> alphabeta(position, depth, α, β, maximizing):
+    <span class="k">if</span> depth = 0 <span class="k">or</span> game over: <span class="k">return</span> evaluate(position)
+    <span class="k">if</span> maximizing:
+        value ← −∞
+        <span class="k">for</span> child <span class="k">in</span> ordered(children):
+            value ← max(value, alphabeta(child, depth − 1, α, β, false))
+            α ← max(α, value)
+            <span class="k">if</span> α ≥ β: <span class="k">break</span>          <span class="c"># β cut-off</span>
+        <span class="k">return</span> value
+    <span class="k">else</span>:  <span class="c"># symmetric: minimise, update β, cut when α ≥ β</span></div>
+        <h3>Why move ordering matters</h3>
+        <p>How much gets pruned depends entirely on <strong>the order in which moves are tried</strong>. If the best move is searched first, the bounds become tight immediately and almost every other branch is cut after its first reply. Knuth and Moore (1975) showed that with perfect ordering alpha-beta examines about <em>b<sup>⌈d/2⌉</sup> + b<sup>⌊d/2⌋</sup> − 1</em> leaves, or <em>O(b<sup>d/2</sup>)</em>. In the same time it can search <strong>twice as deep</strong> as minimax. With random ordering the cost is roughly <em>O(b<sup>3d/4</sup>)</em>, and with the worst ordering nothing is pruned at all.</p>
+        <p>In Connect Four, central columns belong to more potential lines of four, so trying moves <strong>centre-first</strong> (4, 3, 5, 2, 6, 1, 7) is a cheap and effective ordering. You can measure the effect in the <a href="/lab" class="grad-text">Lab's pruning experiment</a>. One side effect: in the Play page, the scores of non-chosen root moves are often only <strong>upper bounds</strong> (shown as "≤"). Pruning proved they cannot beat the best move, but it did not compute their exact value.</p>
+      </section>
+
+      <!-- 4 -->
+      <section id="heuristic">
+        <h2><span class="sec-num">04</span>Heuristic evaluation for Connect Four</h2>
+        <p>When a depth-limited search stops before the game ends, it needs an <strong>evaluation function</strong> that estimates how good the position is. Our agents use <strong>window scoring</strong>. There are exactly <strong>69 windows</strong>, sets of four aligned cells, on a 6×7 board: 24 horizontal, 21 vertical and 24 diagonal. A window that contains discs of both players can never become a four, so it is ignored. Every other window is scored by how many discs it holds:</p>
+        <figure class="figure">
+          <svg viewBox="0 0 560 210" role="img" aria-label="A Connect Four board with two highlighted windows: three red discs and one empty cell scores plus five; three yellow discs and one empty cell scores minus four.">
+            <rect x="10" y="10" width="210" height="180" rx="14" fill="#2733b0"/>
+            <g id="learn-grid">
+              {% for r in range(6) %}{% for c in range(7) %}<circle cx="{{ 25 + c * 30 }}" cy="{{ 25 + r * 30 }}" r="11" style="fill: var(--hole)"/>{% endfor %}{% endfor %}
+            </g>
+            <circle cx="55" cy="175" r="11" fill="#f43f5e"/><circle cx="85" cy="175" r="11" fill="#f43f5e"/><circle cx="115" cy="175" r="11" fill="#f43f5e"/>
+            <circle cx="175" cy="175" r="11" fill="#facc15"/><circle cx="175" cy="145" r="11" fill="#facc15"/><circle cx="175" cy="115" r="11" fill="#facc15"/>
+            <circle cx="115" cy="145" r="11" fill="#facc15"/><circle cx="85" cy="145" r="11" fill="#f43f5e"/>
+            <rect x="38" y="158" width="124" height="34" rx="17" fill="none" stroke="#22d3ee" stroke-width="2.5"/>
+            <rect x="158" y="68" width="34" height="124" rx="17" fill="none" stroke="#f43f5e" stroke-width="2.5" stroke-dasharray="5 4"/>
+            <text class="f-text-strong" x="250" y="40">Pattern (for the player evaluating)</text>
+            <text class="f-text" x="250" y="66">3 own discs + 1 empty</text><text class="f-text-strong" x="520" y="66" text-anchor="end" fill="#22d3ee">+5</text>
+            <text class="f-text" x="250" y="88">2 own discs + 2 empty</text><text class="f-text-strong" x="520" y="88" text-anchor="end">+2</text>
+            <text class="f-text" x="250" y="110">each own disc in centre column</text><text class="f-text-strong" x="520" y="110" text-anchor="end">+3</text>
+            <text class="f-text" x="250" y="132">opponent 2 + 2 empty</text><text class="f-text-strong" x="520" y="132" text-anchor="end">−1</text>
+            <text class="f-text" x="250" y="154">opponent 3 + 1 empty (threat)</text><text class="f-text-strong" x="520" y="154" text-anchor="end" fill="#f43f5e">−4</text>
+            <text class="f-text" x="250" y="176">each opponent centre disc</text><text class="f-text-strong" x="520" y="176" text-anchor="end">−3</text>
+          </svg>
+          <figcaption>From Red's point of view, the cyan window (three reds and an empty cell) adds +5. The dashed window is a Yellow threat in column 6 and costs −4.</figcaption>
+        </figure>
+        <p>The weights follow two principles. First, <strong>threats matter more than potential</strong>: three in a window with the fourth cell open is far more valuable than two. Second, the <strong>centre column is the most valuable</strong>, because more windows pass through it than through any other column. Opponent threes weigh slightly less than our own (−4 vs +5) because the side to move gets to act on threats first. Heuristic scores stay small (dozens), far below the ±1,000,000 used for proven wins. A forced win found by search therefore always outranks any heuristic estimate.</p>
+        <p>A heuristic is only an estimate. A position may score well and still contain a forced loss just beyond the search horizon. Searching deeper (alpha-beta) or using actual playouts instead of a formula (MCTS) are the two main ways around this.</p>
+      </section>
+
+      <!-- 5 -->
+      <section id="mcts">
+        <h2><span class="sec-num">05</span>Monte Carlo Tree Search</h2>
+        <p>MCTS replaces the hand-written evaluation function with <strong>statistics from simulated games</strong>. It grows an asymmetric tree one node at a time, spending more effort on the moves that look promising. Every iteration has four phases:</p>
+        <figure class="figure">
+          <svg viewBox="0 0 680 210" role="img" aria-label="The four phases of MCTS: selection, expansion, simulation and backpropagation.">
+            {% for i in range(4) %}
+            {% set x = 85 + i * 170 %}
+            <g>
+              <path class="f-line{{ ' f-best' if i in [0, 3] else '' }}" d="M{{ x }} 30 L{{ x - 40 }} 80"/>
+              <path class="f-line" d="M{{ x }} 30 L{{ x }} 80"/><path class="f-line" d="M{{ x }} 30 L{{ x + 40 }} 80"/>
+              <path class="f-line{{ ' f-best' if i in [0, 3] else '' }}" d="M{{ x - 40 }} 80 L{{ x - 55 }} 125"/><path class="f-line" d="M{{ x - 40 }} 80 L{{ x - 25 }} 125"/>
+              <circle class="f-max" cx="{{ x }}" cy="30" r="9"/>
+              <circle class="f-min" cx="{{ x - 40 }}" cy="80" r="8"/><circle class="f-node" cx="{{ x }}" cy="80" r="8"/><circle class="f-node" cx="{{ x + 40 }}" cy="80" r="8"/>
+              <circle class="f-max" cx="{{ x - 55 }}" cy="125" r="7"/><circle class="f-node" cx="{{ x - 25 }}" cy="125" r="7"/>
+              {% if i >= 1 %}<path class="f-line{{ ' f-best' if i == 3 else '' }}" d="M{{ x - 55 }} 132 L{{ x - 55 }} 158"/><circle class="{{ 'f-pruned' if i == 1 else 'f-min' }}" cx="{{ x - 55 }}" cy="165" r="7"/>{% endif %}
+              {% if i == 2 %}<path d="M{{ x - 55 }} 172 q8 6 0 12 q-8 6 0 12" fill="none" stroke="#22d3ee" stroke-width="1.6" stroke-dasharray="3 3"/><rect x="{{ x - 37 }}" y="178" width="34" height="18" rx="5" fill="rgba(52,211,153,.2)" stroke="#34d399"/><text class="f-text" x="{{ x - 20 }}" y="191" text-anchor="middle">win</text>{% endif %}
+              {% if i == 3 %}<text class="f-text-strong" x="{{ x - 30 }}" y="160" fill="#34d399">+1</text><text class="f-text-strong" x="{{ x - 18 }}" y="106" fill="#34d399">+1</text><text class="f-text-strong" x="{{ x + 14 }}" y="54" fill="#34d399">+1</text>{% endif %}
+              {% if i == 1 %}<text class="f-text" x="{{ x - 40 }}" y="168">new</text>{% endif %}
+            </g>
+            {% endfor %}
+          </svg>
+          <figcaption>Left to right: selection follows UCT to a leaf, expansion adds a child, simulation plays random moves to the end, backpropagation updates every node on the path.</figcaption>
+        </figure>
+        <div class="phase-grid">
+          <div class="phase"><span class="phase-n">1</span><b>Selection</b><span>From the root, repeatedly pick the child with the highest UCT score until reaching a node that still has untried moves.</span></div>
+          <div class="phase"><span class="phase-n">2</span><b>Expansion</b><span>Add one untried move as a new child node.</span></div>
+          <div class="phase"><span class="phase-n">3</span><b>Simulation</b><span>Play random moves from the new node until the game ends (a "playout" or "rollout"). Our agent's playouts take an immediate win or block an immediate loss when one exists.</span></div>
+          <div class="phase"><span class="phase-n">4</span><b>Backpropagation</b><span>Walk back up the path, adding 1 visit to each node and crediting the win (or ½ for a draw) to the player who made each move.</span></div>
+        </div>
+        <p>Selection uses the <strong>UCT</strong> rule (Upper Confidence bounds applied to Trees, Kocsis &amp; Szepesvári 2006), which applies the UCB1 bandit formula at every node:</p>
+        <div class="formula">UCT(i) = <span class="f-var">w<sub>i</sub></span> / <span class="f-var">n<sub>i</sub></span> + <span class="f-var">c</span> · √( ln <span class="f-var">N</span> / <span class="f-var">n<sub>i</sub></span> )
+          <small>w<sub>i</sub> = wins through child i · n<sub>i</sub> = visits of child i · N = visits of the parent · c = √2 in our agent</small></div>
+        <p>The first term is <strong>exploitation</strong> (the move's observed win rate). The second is <strong>exploration</strong>: it grows for moves that have been tried rarely compared with their siblings. Higher <em>c</em> explores more. After the budget of iterations is used up, the agent plays the <strong>most-visited</strong> root move, which is a more robust choice than the highest raw win rate. MCTS is an <strong>anytime</strong> algorithm (more iterations give better play) and needs no domain knowledge beyond the rules. As the number of iterations grows, UCT converges to the minimax move.</p>
+        <p>Its weakness is narrow tactics. If only one precise reply avoids a loss, random playouts may sample it too rarely to notice, especially with a small budget. This is the reverse of minimax's weakness: minimax sees short tactics perfectly but cannot see past its horizon.</p>
+      </section>
+
+      <!-- 6 -->
+      <section id="complexity">
+        <h2><span class="sec-num">06</span>Complexity</h2>
+        <p><em>b</em> = branching factor (≤ 7), <em>d</em> = search depth in plies, <em>n</em> = MCTS iterations, <em>L</em> = playout length (≤ 42 plies), <em>W</em> = 69 evaluation windows.</p>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Agent</th><th>Time per move</th><th>Memory</th><th>Optimal?</th><th>Needs heuristic?</th></tr></thead>
+            <tbody>
+              <tr><td>Random</td><td><code>O(b)</code></td><td><code>O(1)</code></td><td>No</td><td>No</td></tr>
+              <tr><td>Greedy</td><td><code>O(b · W)</code></td><td><code>O(1)</code></td><td>No (1-ply)</td><td>Yes</td></tr>
+              <tr><td>Minimax</td><td><code>O(b<sup>d</sup>)</code></td><td><code>O(b · d)</code></td><td>Within depth <em>d</em></td><td>Yes</td></tr>
+              <tr><td>Alpha-beta</td><td>best <code>O(b<sup>d/2</sup>)</code>, random order ≈ <code>O(b<sup>3d/4</sup>)</code>, worst <code>O(b<sup>d</sup>)</code></td><td><code>O(b · d)</code></td><td>Same move as minimax</td><td>Yes</td></tr>
+              <tr><td>MCTS (UCT)</td><td><code>O(n · L)</code></td><td><code>O(n)</code> nodes</td><td>Converges as <em>n</em> → ∞</td><td>No</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top: var(--s-4);">For a sense of scale: at depth 6 from an empty board, minimax visits about 137,000 positions (7<sup>6</sup> ≈ 118,000 leaves plus the interior nodes). Alpha-beta without ordering needs about 16,000, and with centre-first ordering about 1,400, roughly 100 times fewer than minimax for the same answer. The <a href="/lab" class="grad-text">Lab</a> measures the exact numbers on this machine.</p>
+      </section>
+
+      <!-- 7 -->
+      <section id="comparison">
+        <h2><span class="sec-num">07</span>Which agent wins when</h2>
+        <ul>
+          <li><strong>Random</strong> is the baseline. It loses to every other agent nearly every game, which shows how much even a little structure is worth.</li>
+          <li><strong>Greedy</strong> never misses a one-move win or block, so it beats Random easily. It has no plans, though: any agent that sets up a <em>double threat</em> (two winning cells at once) beats it, because it can block only one.</li>
+          <li><strong>Minimax</strong> is tactically perfect within its horizon, but its exponential cost limits it to shallow depths in real time. It is deterministic, so it plays the same game every time from the same position.</li>
+          <li><strong>Alpha-beta</strong> chooses the same moves as minimax at the same depth, only faster. Given equal time it searches deeper, and that makes it the strongest agent here in sharp tactical positions.</li>
+          <li><strong>MCTS</strong> shines when long-term structure matters more than short forcing lines, and it needs no evaluation function. With a small budget it can fall into narrow traps that a deep alpha-beta search sees immediately. With a large budget it becomes very strong but slower.</li>
+        </ul>
+        <div class="note">{{ icon('sparkles', 18) }}<p>Try it yourself: in the <a href="/arena" class="grad-text">Arena</a>, set Alpha-Beta (depth 6) against MCTS (1,500 simulations) for a best of 5, then raise MCTS to 5,000 simulations and see how the result changes.</p></div>
+      </section>
+    </article>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  /* Scrollspy for the table of contents. */
+  (function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+    var sections = links.map(function (a) { return document.querySelector(a.getAttribute('href')); }).filter(Boolean);
+    if (!sections.length) return;
+    function activate(id) {
+      links.forEach(function (a) {
+        var on = a.getAttribute('href') === '#' + id;
+        a.classList.toggle('is-active', on);
+        if (on) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
+      });
+    }
+    function onScroll() {
+      var offset = 120, current = sections[0].id;
+      sections.forEach(function (s) { if (s.getBoundingClientRect().top - offset <= 0) current = s.id; });
+      if ((window.innerHeight + window.scrollY) >= document.body.scrollHeight - 4) current = sections[sections.length - 1].id;
+      activate(current);
+    }
+    var ticking = false;
+    window.addEventListener('scroll', function () {
+      if (!ticking) { ticking = true; requestAnimationFrame(function () { ticking = false; onScroll(); }); }
+    }, { passive: true });
+    onScroll();
+  })();
+</script>
+{% endblock %}

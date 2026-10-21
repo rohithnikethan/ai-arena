@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Arena{% endblock %}
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js" defer></script>
+{% endblock %}
+{% block content %}
+<div class="container">
+  <header class="page-head">
+    <div>
+      <div class="eyebrow">AI vs AI</div>
+      <h1>The Arena</h1>
+      <p>Choose two agents and watch them play move by move. Both minds stay visible, so you can compare how each one reads the same position. Agents swap colours every game.</p>
+    </div>
+  </header>
+
+  <div class="arena-setup">
+    <section class="card card-pad" aria-label="Agent A">
+      <div class="agent-pick-head"><span class="mini-disc p1" id="a-disc"></span><span class="card-title">Agent A</span><span class="badge" id="a-colour">Red · first</span></div>
+      <div id="picker-a"></div>
+    </section>
+    <div class="vs-badge" aria-hidden="true">VS</div>
+    <section class="card card-pad" aria-label="Agent B">
+      <div class="agent-pick-head"><span class="mini-disc p2" id="b-disc"></span><span class="card-title">Agent B</span><span class="badge" id="b-colour">Yellow</span></div>
+      <div id="picker-b"></div>
+    </section>
+  </div>
+
+  <section class="card arena-bar" aria-label="Playback controls">
+    <div class="btn-row">
+      <button class="btn btn-primary" type="button" id="btn-play">{{ icon('play', 16) }}<span>Play</span></button>
+      <button class="btn" type="button" id="btn-step">{{ icon('step', 16) }}Step</button>
+      <button class="btn btn-ghost" type="button" id="btn-reset">{{ icon('refresh', 16) }}New series</button>
+    </div>
+    <div class="field">
+      <label class="field-label" for="speed"><span>Delay between moves</span><span class="field-value" id="speed-value">0.6 s</span></label>
+      <input type="range" id="speed" min="0" max="2000" step="100" value="600">
+    </div>
+    <div class="field" style="flex: 0 1 180px;">
+      <label class="field-label" for="best-of"><span>Series</span></label>
+      <select class="select" id="best-of">
+        <option value="1">Single game</option>
+        <option value="3">Best of 3</option>
+        <option value="5" selected>Best of 5</option>
+        <option value="7">Best of 7</option>
+        <option value="9">Best of 9</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="card scoreboard" aria-label="Scoreboard" aria-live="polite">
+    <div class="score-side">
+      <span class="score-name"><span class="mini-disc p1"></span><span id="score-a-name">Agent A</span></span>
+      <span class="score-num" id="score-a">0</span>
+    </div>
+    <div class="score-mid">
+      <small>Draws</small>
+      <span class="score-num" id="score-d">0</span>
+      <small id="series-label">Game 1 of 5</small>
+    </div>
+    <div class="score-side right">
+      <span class="score-name"><span id="score-b-name">Agent B</span><span class="mini-disc p2"></span></span>
+      <span class="score-num" id="score-b">0</span>
+    </div>
+    <div class="series-progress"><i id="series-bar"></i></div>
+  </section>
+
+  <div class="arena-main" style="margin-top: var(--s-4);">
+    <section class="card card-pad" id="mind-a" aria-label="Agent A mind"></section>
+    <div class="arena-center">
+      <section class="card stage-card" aria-label="Board">
+        <div class="stage-top">
+          <span class="pill" id="status"><span class="dot"></span>Press Play to start</span>
+          <span class="badge" id="move-count">Move 0</span>
+        </div>
+        <div id="board"></div>
+      </section>
+    </div>
+    <section class="card card-pad" id="mind-b" aria-label="Agent B mind"></section>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/board.js') }}"></script>
+<script src="{{ url_for('static', filename='js/mind.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/arena.js') }}" defer></script>
+{% endblock %}

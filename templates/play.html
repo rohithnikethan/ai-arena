@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Play{% endblock %}
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js" defer></script>
+{% endblock %}
+{% block content %}
+<div class="container">
+  <header class="page-head">
+    <div>
+      <div class="eyebrow">Human vs AI</div>
+      <h1>Play against the machine</h1>
+      <p>Drop discs by clicking a column or pressing 1–7. After every reply, the AI Mind panel shows what it searched and why it chose its move.</p>
+    </div>
+  </header>
+
+  <div class="play-layout">
+    <div class="play-stage">
+      <section class="card stage-card" aria-label="Game board">
+        <div class="stage-top">
+          <div class="players">
+            <span class="player-tag" id="tag-human"><span class="mini-disc p1" id="human-disc"></span>{{ icon('user', 15) }}You</span>
+            <span class="vs">vs</span>
+            <span class="player-tag" id="tag-ai"><span class="mini-disc p2" id="ai-disc"></span>{{ icon('cpu', 15) }}<span id="ai-name">AI</span></span>
+          </div>
+          <span class="pill" id="status" aria-live="polite"><span class="dot"></span>Loading…</span>
+        </div>
+        <div id="board"></div>
+        <div id="col-bars" style="--gap: clamp(5px, 1.3vw, 10px); --pad: clamp(8px, 2vw, 16px); max-width: 560px; margin-left: auto; margin-right: auto;"></div>
+        <p class="field-hint" style="text-align:center; margin: 8px 0 0;">Bars: how the AI rated each column on its last move (taller is better for the AI).</p>
+        <div class="result-banner" id="result-banner">
+          <strong id="result-text"></strong>
+          <button class="btn btn-primary btn-sm" type="button" id="btn-again">{{ icon('refresh', 15) }}Play again</button>
+        </div>
+      </section>
+
+      <section class="card card-pad" aria-label="Game settings">
+        <div class="card-head">
+          <div>
+            <div class="card-title">{{ icon('cpu', 18) }}Opponent</div>
+            <div class="card-sub">Changes apply to the AI's next move.</div>
+          </div>
+        </div>
+        <div class="controls-grid">
+          <div id="agent-picker" class="span-2 controls-grid"></div>
+          <div class="field span-2">
+            <span class="field-label">Who moves first</span>
+            <div class="seg" role="radiogroup" aria-label="Who moves first">
+              <label><input type="radio" name="first" value="human" checked><span><span class="mini-disc p1"></span>You (Red)</span></label>
+              <label><input type="radio" name="first" value="ai"><span><span class="mini-disc p1"></span>AI (Red)</span></label>
+            </div>
+          </div>
+        </div>
+        <div class="controls-actions">
+          <button class="btn btn-primary" type="button" id="btn-new">{{ icon('refresh', 16) }}New game <span class="kbd">N</span></button>
+          <button class="btn" type="button" id="btn-undo">{{ icon('undo', 16) }}Undo <span class="kbd">U</span></button>
+          <button class="btn" type="button" id="btn-hint">{{ icon('bulb', 16) }}Hint <span class="kbd">H</span></button>
+        </div>
+        <div class="kbd-help" aria-label="Keyboard shortcuts">
+          <span>{{ icon('keyboard', 14) }}Shortcuts</span>
+          <span><span class="kbd">1</span>–<span class="kbd">7</span> drop disc</span>
+          <span><span class="kbd">←</span><span class="kbd">→</span> move focus</span>
+          <span><span class="kbd">U</span> undo</span>
+          <span><span class="kbd">N</span> new game</span>
+          <span><span class="kbd">H</span> hint</span>
+        </div>
+      </section>
+    </div>
+
+    <div class="play-stage">
+      <section class="card card-pad" id="mind" aria-label="AI Mind"></section>
+      <section class="card card-pad" aria-label="Move history">
+        <div class="card-head">
+          <div class="card-title">{{ icon('history', 18) }}Move history</div>
+          <span class="badge" id="move-count">0 moves</span>
+        </div>
+        <ol class="history" id="history"></ol>
+        <div class="empty" id="history-empty" style="padding: 20px 8px;">
+          <span class="empty-icon">{{ icon('history', 20) }}</span>
+          <span>No moves yet. Your first disc starts the log.</span>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/board.js') }}"></script>
+<script src="{{ url_for('static', filename='js/mind.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/play.js') }}" defer></script>
+{% endblock %}
