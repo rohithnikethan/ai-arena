@@ -120,7 +120,12 @@
     if (cancelBtn) {
       var hadFocus = document.activeElement === cancelBtn;
       cancelBtn.hidden = true;
-      if (runBtn) { runBtn.hidden = false; if (hadFocus) runBtn.focus(); }
+      if (runBtn) {
+        runBtn.hidden = false;
+        /* re-enable before focusing: focus() on a disabled button is a no-op */
+        A.setLoading(runBtn, false);
+        if (hadFocus) runBtn.focus();
+      }
     }
     return true;
   }
