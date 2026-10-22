@@ -18,9 +18,19 @@ position; search normally handles wins)
 ==========================================  ======
 
 The center bonus reflects that the middle column takes part in the most
-windows.  Opponent threes are weighted slightly less than our own threes
-(the player to move gets to act on threats first), and opponent twos are
-penalised lightly so the heuristic is close to zero-sum.
+windows.  Opponent threes and twos are weighted slightly less than our own
+(-4 vs +5, -1 vs +2): a mild attacking bias, so the heuristic is close to,
+but not exactly, zero-sum.
+
+The function is *static*: it scores the position from ``me``'s point of view
+and does not know whose turn it is.  Search always calls it from the root
+player's perspective, whoever is to move at the leaf.  The one case where the
+turn decides everything - the side to move has a playable four - is
+therefore not left to these weights: search checks it exactly before calling
+:func:`evaluate` (see ``MinimaxAgent._leaf_value`` in agents.py).  We
+measured the alternatives (scoring leaves from the side to move's view, or
+making the weights symmetric) and neither changed playing strength
+measurably; the immediate-win check did.
 
 Scores are small integers, far below the +/-1_000_000 used by search for
 proven wins and losses.

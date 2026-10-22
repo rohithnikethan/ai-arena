@@ -2,7 +2,7 @@
 {% from "_icons.html" import icon %}
 {% block title %}Lab{% endblock %}
 {% block head %}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
+<script src="{{ url_for('static', filename='vendor/chart-4.4.1.umd.min.js') }}" defer></script>
 {% endblock %}
 {% block content %}
 <div class="container">
@@ -26,17 +26,25 @@
       <form class="lab-form" id="match-form" novalidate>
         <div class="picker-pair" id="lab-a"></div>
         <div class="picker-pair" id="lab-b"></div>
-        <div class="field">
-          <label class="field-label" for="games"><span>Games</span><span class="field-value" id="games-value">10</span></label>
-          <input type="range" id="games" min="2" max="50" step="2" value="10">
+        <div class="field-stack" style="display:flex;flex-direction:column;gap:var(--s-3);min-width:0">
+          <div class="field">
+            <label class="field-label" for="games"><span>Games</span><span class="field-value" id="games-value">10</span></label>
+            <input type="range" id="games" min="2" max="50" step="2" value="10">
+          </div>
+          <div class="field">
+            <label class="field-label" for="opening-plies"><span title="Randomised opening plies">Random opening</span><span class="field-value" id="opening-plies-value">2 ply</span></label>
+            <input type="range" id="opening-plies" min="0" max="6" step="1" value="2" aria-describedby="opening-hint">
+          </div>
         </div>
         <button class="btn btn-primary" type="submit" id="btn-match">{{ icon('play', 16) }}Run tournament</button>
+        <button class="btn" type="button" id="btn-match-cancel" hidden>{{ icon('close', 16) }}Cancel</button>
       </form>
+      <p class="field-hint" id="opening-hint" style="margin:var(--s-2) 0 0">Deterministic agents would replay the same game every time, so each game starts from a few random moves; each opening is played twice with colours swapped.</p>
 
       <div class="summary-row" id="match-summary">
-        <div class="chip"><div class="chip-label"><span class="mini-disc" style="background:#8b5cf6"></span>Agent A wins</div><div class="chip-value" id="sum-a">—</div></div>
-        <div class="chip"><div class="chip-label"><span class="mini-disc" style="background:#22d3ee"></span>Agent B wins</div><div class="chip-value" id="sum-b">—</div></div>
-        <div class="chip"><div class="chip-label"><span class="mini-disc" style="background:#6b7280"></span>Draws</div><div class="chip-value" id="sum-d">—</div></div>
+        <div class="chip"><div class="chip-label"><span class="mini-disc" style="background:#9d41d2"></span>Agent A wins</div><div class="chip-value" id="sum-a">—</div></div>
+        <div class="chip"><div class="chip-label"><span class="mini-disc" style="background:#0d9488"></span>Agent B wins</div><div class="chip-value" id="sum-b">—</div></div>
+        <div class="chip"><div class="chip-label"><span class="mini-disc" style="background:#878c91"></span>Draws</div><div class="chip-value" id="sum-d">—</div></div>
         <div class="chip"><div class="chip-label">{{ icon('clock', 13) }}Wall time</div><div class="chip-value" id="sum-t">—</div></div>
       </div>
 
@@ -66,7 +74,7 @@
 
       <div class="table-wrap" id="match-table-wrap" hidden>
         <table class="table" aria-label="Game results">
-          <thead><tr><th>Game</th><th>First move</th><th>Winner</th><th class="num">Length</th><th>Moves (columns)</th></tr></thead>
+          <thead><tr><th>Game</th><th>First move</th><th>Opening</th><th>Winner</th><th class="num">Length</th><th>Moves (columns)</th></tr></thead>
           <tbody id="match-table"></tbody>
         </table>
       </div>
@@ -77,7 +85,7 @@
       <div class="card-head">
         <div>
           <h2 class="card-title" id="p-title">{{ icon('scissors', 18) }}Pruning power</h2>
-          <div class="card-sub">Nodes searched to pick one move, at each depth. Same decision, very different amounts of work.</div>
+          <div class="card-sub">Nodes searched to pick one move, at each depth. Same value, very different amounts of work.</div>
         </div>
       </div>
       <form class="lab-form is-prune" id="prune-form" novalidate>
@@ -95,6 +103,7 @@
           <span class="field-hint">Mid-game: 8 discs already played.</span>
         </div>
         <button class="btn btn-primary" type="submit" id="btn-prune">{{ icon('zap', 16) }}Run experiment</button>
+        <button class="btn" type="button" id="btn-prune-cancel" hidden>{{ icon('close', 16) }}Cancel</button>
       </form>
 
       <div class="prune-layout">
@@ -112,7 +121,7 @@
           </div>
           <div class="note">
             {{ icon('info', 18) }}
-            <p>Alpha-beta always returns the <strong>same value</strong> as minimax. Ordering moves centre-first makes cut-offs happen earlier, which is why the cyan line sits so far below the others.</p>
+            <p>Alpha-beta always returns the <strong>same value</strong> as minimax. Ordering moves centre-first makes cut-offs happen earlier, which is why the thick solid purple line (alpha-beta + ordering) sits so far below the others: the dashed light-purple line is alpha-beta without ordering and the teal line is plain minimax.</p>
           </div>
         </div>
       </div>

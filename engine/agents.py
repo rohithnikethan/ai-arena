@@ -18,14 +18,17 @@ Agents:
 Search values are from the root player's perspective: a win found ``k``
 plies below the root is worth ``1_000_000 - k`` (faster wins score higher), a
 loss ``-(1_000_000 - k)``, a draw 0, and the heuristic in
-:mod:`engine.evaluate` otherwise.
+:mod:`engine.evaluate` otherwise.  At the depth limit, a leaf whose side to
+move can win immediately is scored as that (proven) win or loss one ply
+later instead of heuristically; see :meth:`MinimaxAgent._leaf_value`.
 """
 
 import math
 import random
 import time
 
-from .board import COLS, COL_LIMIT, CENTER_ORDER, PLAYER_NAMES, has_four
+from .board import (COLS, COL_LIMIT, CENTER_ORDER, PLAYER_NAMES, has_four,
+                    threat_cells, playable_cells)
 from .evaluate import evaluate
 from . import tracing
 
@@ -231,8 +234,9 @@ class MinimaxAgent:
     """Plain depth-limited minimax (no pruning).
 
     ``stats.nodes`` counts every position visited, including the root and
-    terminal (won) positions.  Leaf evaluations are memoised per search by
-    position, which saves time but does not change the node count.
+    terminal (won) positions.  Leaf values (immediate-win check, then the
+    heuristic) are memoised per search by position, which saves time but does
+    not change the node count.
     """
 
     kind = "minimax"
@@ -254,7 +258,7 @@ class MinimaxAgent:
             k = (me << 64) | op
             v = self.cache.get(k)
             if v is None:
-                v = evaluate(me, op)
+                v = self._leaf_value(ply, to_play)
                 self.cache[k] = v
             return v, []
         heights = b.heights
@@ -298,6 +302,8 @@ class MinimaxAgent:
                     child_t["terminal"] = True
             else:
                 val, pv = self._search(ply + 1, depth - 1, 3 - to_play, alpha, beta, child_t)
+                if child_t is not None and prune and depth > 1:
+                    child_t["bound"] = tracing.bound_kind(val, alpha, beta)
             heights[c] -= 1
             bbs[to_play] ^= bit
             b.moves -= 1
@@ -324,6 +330,27 @@ class MinimaxAgent:
                         self._cut(moves, i, tnode, trace_children, to_play)
                         break
         return best, best_pv
+
+    def _leaf_value(self, ply, to_play):
+        """Value of a horizon leaf, from the root player's perspective.
+
+        The static evaluation does not know whose turn it is, so a leaf where
+        the side to move can complete four *right now* would be scored as a
+        mere open three (+5 / -4) although it is decided.  At odd depths that
+        side is the opponent, so the search would happily walk into lines
+        that lose on the very next move.  We therefore first check the side
+        to move for an immediate win (a few whole-board bit operations, see
+        :func:`engine.board.threat_cells`; no extra node is searched): if it
+        has one, the leaf is a proven result at ply ``ply + 1``, scored like
+        any other win or loss.  Otherwise the window heuristic is used.
+        Because a position always sits at the same ply within one search,
+        the result can be memoised by position.
+        """
+        bb = self.b.bb
+        if threat_cells(bb[to_play]) & playable_cells(bb[1] | bb[2]):
+            return (WIN - (ply + 1)) if to_play == self.root else -(WIN - (ply + 1))
+        root = self.root
+        return evaluate(bb[root], bb[3 - root])
 
     def _cut(self, moves, i, tnode, trace_children, to_play):
         rest = moves[i + 1:]
@@ -379,6 +406,8 @@ class MinimaxAgent:
                     child_t["terminal"] = True
             else:
                 val, pv = self._search(1, self.depth - 1, 3 - player, alpha, beta, child_t)
+                if child_t is not None and self.prune and self.depth > 1:
+                    child_t["bound"] = tracing.bound_kind(val, alpha, beta)
             heights[c] -= 1
             b.bb[player] ^= bit
             b.moves -= 1
@@ -492,7 +521,9 @@ class MCTSAgent:
       opponent win (cheap tactical awareness that makes rollouts far less noisy).
     * Backpropagation: win = 1, draw = 0.5, from each node's mover's view.
 
-    The move with the most visits is played.  ``column_scores`` is the root
+    The move with the most visits is played; ties in visits are broken by
+    the higher win rate, then by the more central column (never at random),
+    and the explanation says so.  ``column_scores`` is the root
     player's win rate (0..1) per move, ``column_visits`` the visit counts.
     ``stats.nodes`` counts tree nodes created.
     """
@@ -609,9 +640,8 @@ class MCTSAgent:
             scores[ch.move] = round(ch.wins / ch.visits, 4) if ch.visits else 0.0
             visits[ch.move] = ch.visits
         # most-visited child; break ties by win rate then center preference
-        best = max(root.children,
-                   key=lambda ch: (ch.visits, ch.wins / max(ch.visits, 1),
-                                   -CENTER_ORDER.index(ch.move)))
+        ranked = sorted(root.children, key=self._rank_key, reverse=True)
+        best = ranked[0]
         col = best.move
         pv = [col]
         n = best
@@ -620,21 +650,41 @@ class MCTSAgent:
             pv.append(n.move)
         tree = self._trace(root, player, pv) if trace else None
         stats = _stats(nodes, 0, elapsed, None, self.iterations, max_depth)
-        expl = self._explain(board, player, col, scores, visits)
+        expl = self._explain(board, player, ranked)
         return _finish(board, player, col, scores, visits, stats, expl, pv, tree)
 
-    def _explain(self, board, player, col, scores, visits):
+    @staticmethod
+    def _rank_key(ch):
+        """Final move choice: most visits, then higher win rate, then the
+        more central column (so equal statistics never fall to chance)."""
+        return (ch.visits, ch.wins / max(ch.visits, 1), -CENTER_ORDER.index(ch.move))
+
+    def _explain(self, board, player, ranked):
+        best = ranked[0]
+        col = best.move
         tac = tactical_reason(board, player, col)
         if tac and tac.startswith("Wins immediately"):
             return tac
-        rate = scores[col] or 0.0
+        rate = best.wins / max(best.visits, 1)
         n = self.iterations
         line = (f"Most-explored move after {n:,} simulations: {col_name(col)} "
-                f"({visits[col]:,} visits, {rate:.0%} win rate)")
-        others = [(visits[c], c) for c in range(COLS) if visits[c] is not None and c != col]
-        if others:
-            v2, c2 = max(others)
-            line += f"; runner-up {col_name(c2)} ({v2:,} visits, {scores[c2]:.0%})"
+                f"({best.visits:,} visits, {rate:.0%} win rate)")
+        if len(ranked) > 1:
+            ru = ranked[1]
+            ru_rate = ru.wins / max(ru.visits, 1)
+            if ru.visits != best.visits:
+                line += f"; runner-up {col_name(ru.move)} ({ru.visits:,} visits, {ru_rate:.0%})"
+            else:
+                tied = [ch for ch in ranked if ch.visits == best.visits]
+                names = ", ".join(col_name(ch.move) for ch in tied[1:])
+                line = (f"After {n:,} simulations {col_name(col)} is tied for most visits "
+                        f"with {names} ({best.visits:,} each)")
+                if ru.wins != best.wins:
+                    line += (f"; the tie is broken by the higher win rate ({best.wins:g} vs "
+                             f"{ru.wins:g} simulated wins, draws counting half)")
+                else:
+                    line += (f" and the same win rate ({rate:.0%}); the tie is broken by "
+                             f"preferring the more central column, {col_name(col)}")
         line += "."
         return f"{tac} {line}" if tac else line
 

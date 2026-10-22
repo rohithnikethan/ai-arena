@@ -57,6 +57,12 @@
 <path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>
 {%- elif name == 'maximize' -%}
 <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>
+{%- elif name == 'minimize' -%}
+<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>
+{%- elif name == 'fit' -%}
+<circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+{%- elif name == 'present' -%}
+<rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M12 16v4M8 21h8"/><path d="m10 8 4 2-4 2z"/>
 {%- elif name == 'dice' -%}
 <rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="15" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/><circle cx="9" cy="15" r="1" fill="currentColor"/>
 {%- elif name == 'target' -%}

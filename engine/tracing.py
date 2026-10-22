@@ -11,7 +11,8 @@ TreeNode shape (JSON-serialisable)::
     {"id": str, "move": int|None, "player": 1|2, "value": float|None,
      "alpha": float|None, "beta": float|None,
      "visits": int|None, "wins": float|None,
-     "pruned": bool, "best": bool, "terminal": bool, "children": [TreeNode]}
+     "pruned": bool, "best": bool, "terminal": bool, "children": [TreeNode],
+     "bound": "upper"|"lower"|None}
 
 Conventions:
 
@@ -23,6 +24,13 @@ Conventions:
   beta bounds are reported as ``None`` (JSON has no infinity).
 * ``wins`` (MCTS) is from the perspective of ``player`` (the mover), as in
   standard UCT bookkeeping; ``value`` is the root player's win rate.
+* ``bound`` (alpha-beta only; an additive field beyond SPEC.md) says whether
+  ``value`` is exact or only a bound.  A fail-soft search of a node with
+  window ``(alpha, beta)`` that returns ``v <= alpha`` has *failed low*: the
+  true minimax value is ``<= v`` (``"upper"``, show it as "<= v").  One that
+  returns ``v >= beta`` *failed high*: the true value is ``>= v``
+  (``"lower"``).  Otherwise, and always for terminal positions, horizon
+  leaves, plain minimax and MCTS, it is ``None`` (exact).
 """
 
 MAX_PLIES = 3
@@ -35,7 +43,18 @@ def make_node(node_id, move, player):
         "id": node_id, "move": move, "player": player, "value": None,
         "alpha": None, "beta": None, "visits": None, "wins": None,
         "pruned": False, "best": False, "terminal": False, "children": [],
+        "bound": None,
     }
+
+
+def bound_kind(value, alpha, beta):
+    """``"upper"`` / ``"lower"`` / None for a fail-soft value searched with
+    window ``(alpha, beta)`` (see the module docstring)."""
+    if value <= alpha:
+        return "upper"
+    if value >= beta:
+        return "lower"
+    return None
 
 
 def bound(x):

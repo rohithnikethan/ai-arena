@@ -2,7 +2,8 @@
 {% from "_icons.html" import icon %}
 {% block title %}Play{% endblock %}
 {% block head %}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js" defer></script>
+<script src="{{ url_for('static', filename='vendor/d3-7.8.5.min.js') }}" defer></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/review.css') }}">
 {% endblock %}
 {% block content %}
 <div class="container">
@@ -26,11 +27,20 @@
           <span class="pill" id="status" aria-live="polite"><span class="dot"></span>Loading…</span>
         </div>
         <div id="board"></div>
+        {# Narrow screens only: the AI Mind panel sits below the fold there, so its latest sentence is echoed here. #}
+        <div class="mind-peek" id="mind-peek" hidden>
+          <span class="mind-peek-icon" id="mind-peek-icon">{{ icon('bulb', 16) }}</span>
+          <p class="mind-peek-text" id="mind-peek-text"></p>
+          <a class="mind-peek-link" href="#mind">Tree &amp; details{{ icon('arrow-right', 14) }}</a>
+        </div>
         <div id="col-bars" style="--gap: clamp(5px, 1.3vw, 10px); --pad: clamp(8px, 2vw, 16px); max-width: 560px; margin-left: auto; margin-right: auto;"></div>
         <p class="field-hint" style="text-align:center; margin: 8px 0 0;">Bars: how the AI rated each column on its last move (taller is better for the AI).</p>
         <div class="result-banner" id="result-banner">
           <strong id="result-text"></strong>
-          <button class="btn btn-primary btn-sm" type="button" id="btn-again">{{ icon('refresh', 15) }}Play again</button>
+          <span class="btn-row">
+            <button class="btn btn-sm" type="button" id="btn-review" aria-controls="review">{{ icon('target', 15) }}Review game <span class="kbd">R</span></button>
+            <button class="btn btn-primary btn-sm" type="button" id="btn-again">{{ icon('refresh', 15) }}Play again</button>
+          </span>
         </div>
       </section>
 
@@ -49,6 +59,7 @@
               <label><input type="radio" name="first" value="human" checked><span><span class="mini-disc p1"></span>You (Red)</span></label>
               <label><input type="radio" name="first" value="ai"><span><span class="mini-disc p1"></span>AI (Red)</span></label>
             </div>
+            <span class="field-hint" id="first-hint" aria-live="polite" hidden></span>
           </div>
         </div>
         <div class="controls-actions">
@@ -63,6 +74,7 @@
           <span><span class="kbd">U</span> undo</span>
           <span><span class="kbd">N</span> new game</span>
           <span><span class="kbd">H</span> hint</span>
+          <span><span class="kbd">R</span> review finished game</span>
         </div>
       </section>
     </div>
@@ -82,10 +94,13 @@
       </section>
     </div>
   </div>
+
+  <section class="card card-pad review" id="review" aria-label="Game review" tabindex="-1" hidden></section>
 </div>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/board.js') }}"></script>
 <script src="{{ url_for('static', filename='js/mind.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/play.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/review.js') }}" defer></script>
 {% endblock %}

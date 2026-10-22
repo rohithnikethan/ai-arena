@@ -1,0 +1,69 @@
+{# "Step through alpha-beta" debugger. Included at the end of the #alpha-beta section of learn.html.
+   Behaviour lives in static/js/stepper.js, styles in static/css/stepper.css. #}
+{% from "_icons.html" import icon %}
+<div class="abs" id="ab-stepper" tabindex="0" role="group" aria-labelledby="abs-title" aria-describedby="abs-keys">
+  <div class="abs-head">
+    <div>
+      <h3 class="abs-title" id="abs-title">{{ icon('step', 18) }}Step through alpha-beta</h3>
+      <p class="abs-sub">The algorithm really runs on this tree; every step below is one event from its trace. Switch to plain minimax to compare how many leaves each one needs.</p>
+    </div>
+  </div>
+
+  <div class="abs-toolbar">
+    <label class="field abs-field-tree">
+      <span class="field-label">Tree</span>
+      <select class="select" data-abs-preset>
+        <option value="textbook" selected title="AIMA Fig. 5.2 tree (alpha-beta stages as in Fig. 5.5)">Textbook (AIMA Fig. 5.2/5.5)</option>
+        <option value="best">Best-case ordering (depth 3)</option>
+        <option value="worst">Worst-case ordering (depth 3)</option>
+        <option value="random">Random leaves (depth 3)</option>
+      </select>
+    </label>
+    <button class="btn btn-sm abs-random" type="button" data-abs-random>{{ icon('dice', 15) }}New random</button>
+    <div class="field abs-field-mode">
+      <span class="field-label" id="abs-mode-label">Algorithm</span>
+      <div class="seg sm" role="radiogroup" aria-labelledby="abs-mode-label">
+        <label><input type="radio" name="abs-mode" value="minimax"><span>Plain minimax</span></label>
+        <label><input type="radio" name="abs-mode" value="ab" checked><span>Alpha-beta</span></label>
+      </div>
+    </div>
+  </div>
+  <p class="abs-blurb" data-abs-blurb></p>
+
+  <div class="abs-status">
+    <span class="abs-counter" data-abs-leaves>Leaves evaluated: 0</span>
+    <span class="abs-stepno" data-abs-stepno>Step 0</span>
+  </div>
+
+  <div class="abs-scroll" data-abs-scroll>
+    <svg class="abs-svg" data-abs-svg role="img" aria-label="Game tree"></svg>
+  </div>
+
+  <p class="abs-caption" data-abs-caption aria-live="polite"></p>
+
+  <div class="abs-controls">
+    <div class="btn-row">
+      <button class="btn btn-sm btn-ghost" type="button" data-abs-reset title="Back to the start (Home)">{{ icon('refresh', 15) }}Reset</button>
+      <button class="btn btn-sm" type="button" data-abs-back title="Previous step (←)"><span class="abs-flip">{{ icon('step', 15) }}</span>Back</button>
+      <button class="btn btn-sm" type="button" data-abs-play aria-pressed="false" title="Play / pause (Space)"><span data-when="play">{{ icon('play', 15) }}</span><span data-when="pause" hidden>{{ icon('pause', 15) }}</span><span data-abs-play-label>Play</span></button>
+      <button class="btn btn-sm btn-primary" type="button" data-abs-step title="Next step (→)">Step{{ icon('step', 15) }}</button>
+    </div>
+    <label class="field abs-speed">
+      <span class="field-label">Speed <span class="field-value" data-abs-speed-val>Normal</span></span>
+      <input type="range" min="1" max="5" step="1" value="3" data-abs-speed aria-label="Playback speed">
+    </label>
+  </div>
+
+  <div class="abs-foot">
+    <p class="abs-compare" data-abs-compare></p>
+    <ul class="abs-legend" aria-label="Legend">
+      <li><svg viewBox="0 0 20 20" aria-hidden="true"><polygon class="lg-max" points="10,2 1,17 19,17"/></svg>MAX node</li>
+      <li><svg viewBox="0 0 20 20" aria-hidden="true"><polygon class="lg-min" points="1,3 19,3 10,18"/></svg>MIN node</li>
+      <li><span class="lg-win">[α, β]</span>node's current window (passed to its next child)</li>
+      <li><span class="lg-bound">≤2</span>bound, not exact</li>
+      <li><span class="lg-cut">{{ icon('scissors', 13) }}</span>pruned</li>
+      <li><span class="lg-pv"></span>principal variation</li>
+    </ul>
+    <p class="abs-keys" id="abs-keys">Click the tree, then use <span class="kbd">→</span> / <span class="kbd">←</span> to step and <span class="kbd">Space</span> to play or pause.</p>
+  </div>
+</div>

@@ -3,13 +3,23 @@
 Serves the pages and a small JSON API. All game logic lives in ``engine/``;
 this module only validates input, calls ``engine.api`` and serialises results.
 
-Run with:  python app.py   ->  http://localhost:5050
+Run with:  python app.py   ->  http://127.0.0.1:5050
+Debug mode (Werkzeug debugger + auto-reload) is opt-in:
+           AI_ARENA_DEBUG=1 python app.py
+
+Numeric input policy (every endpoint, every integer field: depth,
+iterations, seed, games, opening_plies, player, column, moves[], depths[],
+board cells): a JSON integer or an integral float (``5`` or ``5.0``) is
+accepted; strings (``"5"``), booleans, fractions, NaN/Infinity and
+magnitudes above 2**53 are rejected with 400.  Values outside a documented
+range are clamped for depth, iterations, games and opening_plies, and
+rejected for player, column, moves and compare-depth depths.
 """
 
 from __future__ import annotations
 
 import math
-import traceback
+import os
 
 from flask import Flask, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
@@ -25,6 +35,10 @@ DEPTH_RANGE = (1, 8)
 MINIMAX_DEPTH_MAX = 6  # plain minimax is exponential; the engine caps it here too
 ITER_RANGE = (50, 20000)
 GAMES_RANGE = (1, 50)
+OPENING_PLIES_RANGE = (0, 6)
+#: /api/match refuses requests whose estimated run time exceeds this
+#: (engine.api.estimate_match_seconds is a deliberately pessimistic model).
+MATCH_TIME_LIMIT_S = 240
 COMPARE_DEPTH_RANGE = (1, 7)
 BIG = 1e9  # stand-in for +/- infinity in JSON (JSON has no Infinity)
 
@@ -38,7 +52,12 @@ class BadRequest(ValueError):
 # --------------------------------------------------------------------------
 
 def _json_body() -> dict:
-    data = request.get_json(silent=True)
+    try:
+        data = request.get_json(silent=True)
+    except (RecursionError, ValueError):
+        # silent=True only covers decode errors; a pathologically nested body
+        # ("[" * 50000) makes the JSON parser itself raise RecursionError.
+        data = None
     if data is None:
         raise BadRequest("Request body must be valid JSON (Content-Type: application/json).")
     if not isinstance(data, dict):
@@ -46,21 +65,29 @@ def _json_body() -> dict:
     return data
 
 
-def _is_int(value) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
+MAX_EXACT_INT = 2 ** 53
 
 
 def _as_int(value, name: str) -> int:
-    if _is_int(value):
+    """The one integer policy (see module docstring): int or integral float."""
+    if isinstance(value, bool):
+        raise BadRequest(f"'{name}' must be an integer, not a boolean.")
+    if isinstance(value, int) and abs(value) <= MAX_EXACT_INT:
         return value
-    if isinstance(value, float) and value.is_integer():
+    if isinstance(value, float) and value.is_integer() and abs(value) <= MAX_EXACT_INT:
         return int(value)
-    if isinstance(value, str):
-        try:
-            return int(value.strip())
-        except ValueError:
-            pass
-    raise BadRequest(f"'{name}' must be an integer.")
+    raise BadRequest(f"'{name}' must be an integer (got {value!r}).")
+
+
+def _int_in(value, name: str, lo: int, hi: int, what: str) -> int:
+    """Parse with :func:`_as_int` and *reject* values outside ``lo..hi``."""
+    try:
+        v = _as_int(value, name)
+    except BadRequest:
+        v = None
+    if v is None or not lo <= v <= hi:
+        raise BadRequest(f"'{name}' must be {what}.")
+    return v
 
 
 def _clamp(value: int, lo: int, hi: int) -> int:
@@ -76,9 +103,7 @@ def _validate_board(board) -> list:
             raise BadRequest(f"Row {r} of 'board' must be a list of {COLS} cells.")
         clean_row = []
         for c, cell in enumerate(row):
-            if not _is_int(cell) or cell not in (0, 1, 2):
-                raise BadRequest(f"Cell [{r}][{c}] must be 0, 1 or 2.")
-            clean_row.append(cell)
+            clean_row.append(_int_in(cell, f"board[{r}][{c}]", 0, 2, "0, 1 or 2"))
         clean.append(clean_row)
 
     validator = getattr(engine_api, "validate_board", None)
@@ -103,14 +128,15 @@ def _validate_board(board) -> list:
 
 
 def _validate_player(value) -> int:
-    if not _is_int(value) or value not in (1, 2):
-        raise BadRequest("'player' must be 1 or 2.")
-    return value
+    return _int_in(value, "player", 1, 2, "1 or 2")
 
 
 def _validate_agent(cfg, name: str = "agent", trace: bool | None = None) -> dict:
     if isinstance(cfg, str):
-        cfg = {"type": cfg}
+        # a bare preset id ("alphabeta") means that preset, exactly as in the
+        # engine (engine.api.normalize_config): Alpha-Beta depth 6, Minimax 4
+        presets = engine_api.AGENT_PRESETS
+        cfg = dict(presets[cfg]) if cfg in presets else {"type": cfg}
     if not isinstance(cfg, dict):
         raise BadRequest(f"'{name}' must be an object like {{\"type\": \"alphabeta\", \"depth\": 5}}.")
     agent_type = cfg.get("type")
@@ -210,6 +236,11 @@ def learn():
     return _page("learn.html", "learn", [("Home", "/"), ("Learn", None)])
 
 
+@app.get("/present")
+def present():
+    return _page("present.html", "present", [("Home", "/"), ("Present", None)])
+
+
 # --------------------------------------------------------------------------
 # JSON API
 # --------------------------------------------------------------------------
@@ -234,9 +265,7 @@ def api_apply():
     """
     data = _json_body()
     board = _validate_board(data.get("board"))
-    column = data.get("column")
-    if not _is_int(column) or not 0 <= column < COLS:
-        raise BadRequest("'column' must be an integer from 0 to 6.")
+    column = _int_in(data.get("column"), "column", 0, COLS - 1, "an integer from 0 to 6")
     state = _engine_call(engine_api.game_state, board)
     if state.get("winner") or state.get("draw"):
         raise BadRequest("The game is already over; start a new game.")
@@ -272,7 +301,19 @@ def api_match():
     games = _clamp(_as_int(data.get("games", 10), "games"), *GAMES_RANGE)
     seed = data.get("seed", 0)
     seed = 0 if seed is None else _as_int(seed, "seed")
-    return _ok(_engine_call(engine_api.run_match, cfg_a, cfg_b, games=games, seed=seed))
+    plies = _clamp(_as_int(data.get("opening_plies", 0), "opening_plies"), *OPENING_PLIES_RANGE)
+    est = _engine_call(engine_api.estimate_match_seconds, cfg_a, cfg_b, games)
+    if est > MATCH_TIME_LIMIT_S:
+        per_game = est / games
+        fit = int(MATCH_TIME_LIMIT_S // per_game)
+        hint = (f"at most {fit} game{'s' if fit != 1 else ''} fit" if fit >= 1
+                else "not even one game fits")
+        raise BadRequest(
+            f"This match is too long: about {est:.0f} s of search estimated "
+            f"(limit {MATCH_TIME_LIMIT_S} s). With these agents {hint}; "
+            "use fewer games, fewer MCTS iterations or a smaller search depth.")
+    return _ok(_engine_call(engine_api.run_match, cfg_a, cfg_b, games=games, seed=seed,
+                            opening_plies=plies))
 
 
 @app.post("/api/compare-depth")
@@ -296,6 +337,25 @@ def api_compare_depth():
         clean_depths.add(d)
     result = _engine_call(engine_api.compare_depth, board=board, depths=sorted(clean_depths))
     return _ok(result)
+
+
+REVIEW_DEPTH_RANGE = (1, 8)
+REVIEW_DEPTH_DEFAULT = 7
+
+
+@app.post("/api/analyze")
+def api_analyze():
+    """Post-game review: {moves: [cols], depth?} -> engine.api.analyze_game result."""
+    data = _json_body()
+    moves = data.get("moves")
+    if not isinstance(moves, list) or not moves:
+        raise BadRequest("'moves' must be a non-empty list of columns (0-6), Red first.")
+    if len(moves) > ROWS * COLS:
+        raise BadRequest(f"'moves' can hold at most {ROWS * COLS} moves.")
+    moves = [_int_in(col, f"moves[{i}]", 0, COLS - 1, "an integer from 0 to 6")
+             for i, col in enumerate(moves)]
+    depth = _clamp(_as_int(data.get("depth", REVIEW_DEPTH_DEFAULT), "depth"), *REVIEW_DEPTH_RANGE)
+    return _ok(_engine_call(engine_api.analyze_game, moves, depth=depth))
 
 
 # --------------------------------------------------------------------------
@@ -326,11 +386,21 @@ def handle_http(exc: HTTPException):
 
 @app.errorhandler(Exception)
 def handle_unexpected(exc):
-    traceback.print_exc()
+    # full details go to the server log only; clients get a generic message
+    app.logger.error("Unhandled exception on %s %s", request.method, request.path,
+                     exc_info=(type(exc), exc, exc.__traceback__))
     if _wants_json():
-        return _error(f"Internal error: {type(exc).__name__}: {exc}", 500)
+        return _error("Internal server error.", 500)
     return _page("404.html", "", [("Home", "/"), ("Error", None)], error=True), 500
 
 
+def _debug_enabled() -> bool:
+    """Debug mode is opt-in: AI_ARENA_DEBUG=1 (or true/yes/on)."""
+    return os.environ.get("AI_ARENA_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5050, debug=True)
+    debug = _debug_enabled()
+    print(f" * AI Arena on http://127.0.0.1:5050 (debug {'on' if debug else 'off'}; "
+          "set AI_ARENA_DEBUG=1 for the debugger and auto-reload)")
+    app.run(host="127.0.0.1", port=5050, debug=debug, use_reloader=debug)

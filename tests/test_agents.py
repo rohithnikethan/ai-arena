@@ -6,9 +6,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.board import Board  # noqa: E402
 from engine.agents import (  # noqa: E402
-    RandomAgent, GreedyAgent, MinimaxAgent, AlphaBetaAgent, MCTSAgent, WIN,
+    RandomAgent, GreedyAgent, MinimaxAgent, AlphaBetaAgent, MCTSAgent, WIN, INF, _Node,
 )
-from engine import tracing  # noqa: E402
+from engine.board import threat_cells, playable_cells  # noqa: E402
+from engine.evaluate import evaluate  # noqa: E402
+from engine import api, tracing  # noqa: E402
 
 
 def play(moves):
@@ -172,6 +174,158 @@ class TestDeterminism(unittest.TestCase):
         agent = RandomAgent(seed=1)
         for _ in range(50):
             self.assertNotIn(agent.choose(b, 1)["column"], (0, 1))
+
+
+class TestLeafEvaluation(unittest.TestCase):
+    """The horizon/parity fix: leaves where the side to move can win at once."""
+
+    def leaf(self, moves, root):
+        agent = MinimaxAgent(depth=1)
+        agent.b = play(moves)
+        agent.root = root
+        return agent._leaf_value(5, agent.b.to_move)
+
+    def test_side_to_move_win_is_a_proof_from_either_perspective(self):
+        # WIN_POS: Red to move can complete the bottom row in column 4
+        self.assertEqual(self.leaf(WIN_POS, root=1), WIN - 6)       # root's own win
+        self.assertEqual(self.leaf(WIN_POS, root=2), -(WIN - 6))    # opponent's win
+        # BLOCK_POS: Yellow to move has no win; Red's threat is only heuristic
+        b = play(BLOCK_POS)
+        self.assertEqual(self.leaf(BLOCK_POS, root=1), evaluate(b.bb[1], b.bb[2]))
+
+    def test_static_evaluation_stays_root_perspective(self):
+        # quiet leaf: the heuristic is still scored for the root player,
+        # whoever is to move (the documented evaluation is unchanged)
+        moves = [3, 3, 2, 4]
+        b = play(moves)
+        self.assertEqual(self.leaf(moves, root=2), evaluate(b.bb[2], b.bb[1]))
+        self.assertEqual(self.leaf(moves, root=1), evaluate(b.bb[1], b.bb[2]))
+
+    def test_odd_depth_sees_reply_win(self):
+        # Yellow to move must block column 4.  At depth 1 every other move
+        # leaves Red a winning reply; that is now scored as a loss in 2 plies
+        # instead of a heuristic "-4 for an opponent three".
+        b = play(BLOCK_POS)
+        for agent in (MinimaxAgent(depth=1), AlphaBetaAgent(depth=1),
+                      MinimaxAgent(depth=3)):
+            res = agent.choose(b, 2, trace=False)
+            self.assertEqual(res["column"], 3)
+            for c in range(7):
+                if c != 3:
+                    self.assertEqual(res["column_scores"][c], -(WIN - 2), f"{agent.kind} {c}")
+
+    def test_threat_cells_match_slow_check(self):
+        import random
+        rng = random.Random(4)
+        for _ in range(300):
+            b = Board()
+            for _ in range(rng.randrange(0, 30)):
+                b.play(rng.choice(b.valid_moves()))
+                if b.winner():
+                    break
+            if b.winner() or b.is_full():
+                continue
+            for p in (1, 2):
+                fast = threat_cells(b.bb[p]) & playable_cells(b.bb[1] | b.bb[2])
+                slow = sum(1 << b.heights[c] for c in b.winning_moves(p))
+                self.assertEqual(fast, slow)
+
+    def test_regression_alphabeta_beats_greedy_at_every_depth(self):
+        # Before the fix Greedy as Red beat Alpha-Beta at depths 1, 3 and 5
+        # from the empty board (one replayed game), and AB-1 lost to Greedy
+        # from random openings.  Now Alpha-Beta never loses this pair of games.
+        for depth in range(2, 8):
+            r = api.run_match({"type": "greedy"}, {"type": "alphabeta", "depth": depth},
+                              games=2, seed=3)
+            self.assertEqual(r["a_wins"], 0, f"depth {depth}")
+        r = api.run_match({"type": "greedy"}, {"type": "alphabeta", "depth": 3},
+                          games=20, seed=0, opening_plies=2)
+        self.assertGreaterEqual(r["b_wins"] + 0.5 * r["draws"], 16)
+
+
+class TestBoundFlags(unittest.TestCase):
+    """TreeNode["bound"]: "upper"/"lower" for fail-low/fail-high values."""
+
+    DEPTH = 5
+
+    def exact(self, root_board, root, path):
+        """Full-window (exact) value of the node reached by ``path``."""
+        agent = AlphaBetaAgent(depth=self.DEPTH)
+        agent.b = b = root_board.copy()
+        agent.root = root
+        agent.nodes = agent.pruned = agent.max_ply = 0
+        agent.cache = {}
+        for c in path:
+            b.play(c)
+        v, _ = agent._search(len(path), self.DEPTH - len(path), b.to_move, -INF, INF, None)
+        return v
+
+    def test_bounds_are_honest(self):
+        kinds = set()
+        for moves in ([3, 3, 2, 4], [3, 2, 3, 2, 4, 4, 5, 6, 1], []):
+            b = play(moves)
+            root = b.to_move
+            res = AlphaBetaAgent(depth=self.DEPTH).choose(b, root)
+
+            def walk(node, path):
+                for ch in node["children"]:
+                    p = path + [ch["move"]]
+                    if ch["pruned"] or ch["terminal"] or ch["value"] is None:
+                        self.assertIsNone(ch["bound"])
+                    elif len(p) < self.DEPTH:
+                        exact = self.exact(b, root, p)
+                        kinds.add(ch["bound"])
+                        if ch["bound"] == "upper":
+                            self.assertLessEqual(exact, ch["value"])
+                        elif ch["bound"] == "lower":
+                            self.assertGreaterEqual(exact, ch["value"])
+                        else:
+                            self.assertEqual(exact, ch["value"], p)
+                    walk(ch, p)
+            walk(res["tree"], [])
+            chosen = [ch for ch in res["tree"]["children"] if ch["best"]][0]
+            self.assertIsNone(chosen["bound"])
+        self.assertTrue({"upper", "lower", None} <= kinds, kinds)
+
+    def test_minimax_and_mcts_never_flag_bounds(self):
+        b = play([3, 3, 2, 4])
+        for agent in (MinimaxAgent(depth=3), MCTSAgent(iterations=200, seed=1)):
+            flat = [agent.choose(b, 1)["tree"]]
+            while flat:
+                n = flat.pop()
+                self.assertIsNone(n["bound"])
+                flat.extend(n["children"])
+
+
+class TestMCTSExplanation(unittest.TestCase):
+    def node(self, move, visits, wins):
+        n = _Node(move, None, 1, [], 0, False, 1)
+        n.visits, n.wins = visits, wins
+        return n
+
+    def explain(self, *stats):
+        agent = MCTSAgent(iterations=1500)
+        ranked = sorted((self.node(*s) for s in stats), key=agent._rank_key, reverse=True)
+        return ranked[0].move, agent._explain(Board(), 1, ranked)
+
+    def test_runner_up(self):
+        col, text = self.explain((3, 900, 500.0), (4, 600, 300.0))
+        self.assertEqual(col, 3)
+        self.assertIn("column 4 (900 visits, 56% win rate); runner-up column 5 (600 visits, 50%)",
+                      text)
+
+    def test_tie_broken_by_win_rate(self):
+        col, text = self.explain((4, 750, 15.0), (6, 750, 16.0))
+        self.assertEqual(col, 6)
+        self.assertIn("column 7 is tied for most visits with column 5 (750 each)", text)
+        self.assertIn("broken by the higher win rate (16 vs 15 simulated wins", text)
+        self.assertNotIn("runner-up", text)
+
+    def test_tie_broken_by_center(self):
+        col, text = self.explain((6, 750, 15.0), (2, 750, 15.0))
+        self.assertEqual(col, 2)                      # column 3 is more central than 7
+        self.assertIn("the same win rate (2%)", text)
+        self.assertIn("preferring the more central column, column 3", text)
 
 
 if __name__ == "__main__":

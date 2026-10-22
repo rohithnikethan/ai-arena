@@ -15,6 +15,16 @@
   });
 
   var statusEl = $('#status');
+  var peekEl = $('#mind-peek'), peekText = $('#mind-peek-text'), peekIcon = $('#mind-peek-icon');
+  var peekBulb = peekIcon ? peekIcon.innerHTML : '';
+  /* Narrow screens: echo the AI's latest explanation next to the board (CSS hides it on wide screens). */
+  function peek(text, thinking) {
+    if (!peekEl) return;
+    peekEl.hidden = !text;
+    peekEl.classList.toggle('is-thinking', !!thinking);
+    peekText.textContent = text || '';
+    peekIcon.innerHTML = thinking ? '<span class="spinner"></span>' : peekBulb;
+  }
   var historyEl = $('#history');
   var historyEmpty = $('#history-empty');
   var banner = $('#result-banner');
@@ -48,7 +58,9 @@
   }
 
   function updateTurnUI() {
-    var turn = toMove();
+    // While the human's move is being applied (busy, not yet in S.moves) the
+    // turn has effectively passed to the AI, so show its thinking state.
+    var turn = S.busy ? aiPlayer() : toMove();
     $('#tag-human').classList.toggle('is-turn', !S.over && turn === S.human);
     $('#tag-ai').classList.toggle('is-turn', !S.over && turn === aiPlayer());
     view.setTurn(S.human);
@@ -56,7 +68,7 @@
     btnUndo.disabled = !S.moves.some(function (m) { return m.by === 'human'; });
     btnHint.disabled = S.over || S.busy || turn !== S.human;
     if (S.over) return;
-    if (S.busy && turn === aiPlayer()) setStatus('think', 'AI is thinking');
+    if (S.busy) setStatus('think', 'AI is thinking');
     else if (turn === S.human) setStatus(S.human === 1 ? 'red' : 'yellow', 'Your move');
     else setStatus('think', 'AI to move');
   }
@@ -100,17 +112,27 @@
       A.toast('Nicely played: you beat ' + picker.label() + '.', { type: 'success', title: 'Victory', icon: 'trophy' });
     }
     updateTurnUI();
+    // hand the finished game to the Game Review panel (review.js)
+    document.dispatchEvent(new CustomEvent('play:over', { detail: {
+      moves: S.moves.map(function (m) { return Object.assign({}, m); }),
+      human: S.human, state: state
+    } }));
   }
+
+  function announceReset() { document.dispatchEvent(new CustomEvent('play:reset')); }
 
   function newGame(silent) {
     cancelPending();
+    announceReset();
     view.clearHint();
     S.board = A.emptyBoard();
     S.moves = [];
     S.over = false;
     S.human = document.querySelector('input[name="first"]:checked').value === 'ai' ? 2 : 1;
+    firstHint.hidden = true;
     banner.classList.remove('is-visible');
     view.render(S.board);
+    peek('');
     mind.reset(S.human === 1 ? 'You play Red and move first. Make a move and the AI will explain its reply here.'
       : 'The AI plays Red and moves first. Watch its reasoning appear here.');
     updateNames();
@@ -158,6 +180,7 @@
     S.busy = true;
     updateTurnUI();
     mind.thinking(label);
+    peek(label + ' is thinking…', true);
     S.controller = window.AbortController ? new AbortController() : null;
     var started = performance.now();
     var player = aiPlayer();
@@ -175,6 +198,7 @@
         S.board = res.board_after;
         S.moves.push({ col: col, row: row, player: player, by: 'ai', label: label });
         mind.show(res, { type: cfg.type, player: player, iterations: cfg.iterations });
+        peek(res.explanation || (label + ' chose column ' + (col + 1) + '.'));
         renderHistory();
         return view.render(S.board, { animate: [row, col] }).then(function () {
           if (token !== S.token) return;
@@ -190,6 +214,7 @@
         S.busy = false;
         S.controller = null;
         mind.error(err && err.message);
+        peek((err && err.message) || 'The AI could not move.');
         setStatus('bad', 'AI error');
         view.setLocked(true);
         A.toast('Press N to restart, or U to undo your last move.', { title: 'Game paused', timeout: 5000 });
@@ -201,6 +226,7 @@
     for (var i = S.moves.length - 1; i >= 0; i--) { if (S.moves[i].by === 'human') { lastHuman = i; break; } }
     if (lastHuman === -1) { A.toast('Nothing to undo yet.', { timeout: 2000 }); return; }
     cancelPending();
+    announceReset();
     view.clearHint();
     var removed = S.moves.length - lastHuman;
     S.moves = S.moves.slice(0, lastHuman);
@@ -208,6 +234,7 @@
     S.over = false;
     banner.classList.remove('is-visible');
     view.render(S.board, { last: S.moves.length ? [S.moves[S.moves.length - 1].row, S.moves[S.moves.length - 1].col] : null });
+    peek('');
     mind.reset('Took back ' + (removed > 1 ? 'your move and the AI\'s reply' : 'your move') + '. Your turn again.');
     renderHistory();
     updateTurnUI();
@@ -241,16 +268,31 @@
   $('#btn-again').addEventListener('click', function () { newGame(); });
   btnUndo.addEventListener('click', undo);
   btnHint.addEventListener('click', hint);
+  /* Changing who moves first never wipes a game in progress (arrow keys on the
+     radios fire "change" too): before the first move or after the game is over
+     it starts a new game at once, otherwise it applies to the next game. */
+  var firstHint = $('#first-hint');
   document.querySelectorAll('input[name="first"]').forEach(function (r) {
     r.addEventListener('change', function () {
       A.store.set('play-first', r.value);
-      newGame(true);
-      A.toast(r.value === 'ai' ? 'New game: the AI moves first as Red.' : 'New game: you move first as Red.', { timeout: 2500 });
+      var want = r.value === 'ai' ? 2 : 1;
+      if (S.over || !S.moves.length) {
+        newGame(true);
+        A.toast(r.value === 'ai' ? 'New game: the AI moves first as Red.' : 'New game: you move first as Red.', { timeout: 2500 });
+        return;
+      }
+      if (want === S.human) { firstHint.hidden = true; return; }
+      firstHint.textContent = 'Applies to the next game (press N or New game to start it now).';
+      firstHint.hidden = false;
+      A.toast(r.value === 'ai' ? 'From the next game the AI moves first.' : 'From the next game you move first.',
+        { title: 'Applies to the next game', timeout: 3000 });
     });
   });
 
   document.addEventListener('keydown', function (e) {
-    if (e.ctrlKey || e.metaKey || e.altKey || A.isTypingTarget(e.target)) return;
+    // allowSelect: right after choosing an opponent the <select> keeps focus;
+    // these keys mean nothing to it, so they should still drive the game.
+    if (e.ctrlKey || e.metaKey || e.altKey || A.isTypingTarget(e.target, { allowSelect: true })) return;
     var k = e.key;
     if (k >= '1' && k <= '7') { e.preventDefault(); humanMove(Number(k) - 1); }
     else if (k === 'u' || k === 'U') { e.preventDefault(); undo(); }

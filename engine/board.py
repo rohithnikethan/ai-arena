@@ -38,6 +38,27 @@ DIRECTIONS = (1, H, H + 1, H - 1)
 
 PLAYER_NAMES = {1: "Red", 2: "Yellow"}
 
+#: Largest integer a JSON number (IEEE double) can carry exactly.
+MAX_EXACT_INT = 2 ** 53
+
+
+def parse_int(value, name):
+    """Shared integer policy for every numeric input of the engine and API.
+
+    Accepts a Python ``int`` or an integral, finite ``float`` (JSON has one
+    number type, so ``5`` and ``5.0`` are the same value) of magnitude at most
+    2**53.  Rejects booleans, strings (``"5"``), fractions (``5.5``), NaN and
+    infinity with a ``ValueError``.  Range limits are applied by the caller
+    (depth and iterations are clamped, not rejected).
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be an integer (got {value!r})")
+    if isinstance(value, int) and abs(value) <= MAX_EXACT_INT:
+        return value
+    if isinstance(value, float) and value.is_integer() and abs(value) <= MAX_EXACT_INT:
+        return int(value)
+    raise ValueError(f"{name} must be an integer (got {value!r})")
+
 
 def has_four(bb):
     """Return True if bitboard ``bb`` contains four in a row in any direction."""
@@ -54,6 +75,35 @@ def has_four(bb):
     if m & (m >> 12):
         return True
     return False
+
+
+#: Bottom cell of every column.
+BOTTOM_MASK = sum(1 << (c * H) for c in range(COLS))
+
+
+def threat_cells(bb):
+    """Mask of every cell (empty or not) that would complete a four for ``bb``.
+
+    For each direction ``s`` a cell is a threat if the three cells on one
+    side, or two on one side and one on the other, all belong to ``bb``.
+    Shift-and-AND over the whole board at once (the trick used by Pascal
+    Pons' Connect Four solver); callers mask the result with the cells that
+    can actually be played.
+    """
+    r = (bb << 1) & (bb << 2) & (bb << 3)           # vertical: three below
+    for s in (H, H - 1, H + 1):                    # horizontal and diagonals
+        p = (bb << s) & (bb << 2 * s)
+        r |= p & (bb << 3 * s)
+        r |= p & (bb >> s)
+        p = (bb >> s) & (bb >> 2 * s)
+        r |= p & (bb << s)
+        r |= p & (bb >> 3 * s)
+    return r
+
+
+def playable_cells(occupied):
+    """Mask of the next free cell of every non-full column."""
+    return (occupied + BOTTOM_MASK) & BOARD_MASK
 
 
 def bit_to_cell(i):

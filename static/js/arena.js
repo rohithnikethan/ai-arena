@@ -28,7 +28,8 @@
     token: 0,
     loopId: 0,
     score: { a: 0, b: 0, d: 0 },
-    seriesDone: false
+    seriesDone: false,
+    autoPlayed: false  // has Play been pressed in this series? (Resume vs Continue)
   };
 
   function colourOf(side) {
@@ -74,10 +75,18 @@
     $('#series-bar').style.width = (Math.min(1, played / n) * 100) + '%';
   }
 
+  /* "Resume" only after a real pause; a series advanced with Step alone says
+     "Continue"; a fresh board says "Play". */
+  function playLabel() {
+    if (S.seriesDone) return 'Play again';
+    if (!S.moves && !S.game) return 'Play';
+    return S.autoPlayed ? 'Resume' : 'Continue';
+  }
+
   function updateControls() {
     btnPlay.innerHTML = S.playing
       ? '<svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="6" y="4.5" width="4" height="15" rx="1"/><rect x="14" y="4.5" width="4" height="15" rx="1"/></svg><span>Pause</span>'
-      : '<svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg><span>' + (S.seriesDone ? 'Play again' : (S.moves || S.game ? 'Resume' : 'Play')) + '</span>';
+      : '<svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg><span>' + playLabel() + '</span>';
     btnPlay.setAttribute('aria-pressed', S.playing ? 'true' : 'false');
     btnStep.disabled = S.playing || S.busy;
     pickers.a.setDisabled(S.playing);
@@ -106,6 +115,7 @@
     S.game = 0;
     S.score = { a: 0, b: 0, d: 0 };
     S.seriesDone = false;
+    S.autoPlayed = false;
     startGame();
     setStatus('', 'Press Play to start');
     if (!silent) A.toast('Scoreboard cleared. Press Play to begin.', { timeout: 2200 });
@@ -228,6 +238,7 @@
     if (S.seriesDone) resetSeries(true);
     else if (S.over) { S.game++; startGame(); }
     S.playing = true;
+    S.autoPlayed = true;
     updateControls();
     var id = ++S.loopId;
     if (!S.busy) loop(id);
@@ -256,7 +267,7 @@
   });
 
   document.addEventListener('keydown', function (e) {
-    if (e.ctrlKey || e.metaKey || e.altKey || A.isTypingTarget(e.target)) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || A.isTypingTarget(e.target, { allowSelect: e.key !== ' ' })) return;
     if (e.key === ' ' && e.target === document.body) { e.preventDefault(); btnPlay.click(); }
     else if (e.key === 's' || e.key === 'S') { btnStep.click(); }
     else if (e.key === 'n' || e.key === 'N') { resetSeries(false); }

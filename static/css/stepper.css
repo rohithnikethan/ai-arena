@@ -1,0 +1,177 @@
+/* ==========================================================================
+   AI Arena: "Step through alpha-beta" debugger (Learn page).
+   Colours come only from the design tokens in style.css, so the widget follows
+   the light / dark themes and any rebrand automatically.
+   ========================================================================== */
+
+.abs {
+  /* widget-local tokens, all derived from the global palette */
+  --abs-max: var(--viz-a, var(--accent-1));
+  --abs-min: var(--viz-b, var(--accent-2));
+  --abs-max-fill: color-mix(in srgb, var(--abs-max) 24%, transparent);
+  --abs-min-fill: color-mix(in srgb, var(--abs-min) 20%, transparent);
+  --abs-cur: var(--warn);
+  --abs-cur-fill: color-mix(in srgb, var(--warn) 22%, transparent);
+  --abs-pv: var(--good);
+  --abs-cut: var(--bad);
+  --abs-path: var(--accent);
+
+  margin: var(--s-5) 0 var(--s-2);
+  padding: var(--s-5);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--glass-shadow);
+  min-width: 0;
+}
+.abs:focus { outline: none; }
+.abs:focus-visible { box-shadow: var(--focus); border-radius: var(--radius-lg); }
+
+.prose .abs-title { display: flex; align-items: center; gap: 10px; margin: 0 0 var(--s-2); font-size: var(--fs-md); }
+.abs-title .icon { color: var(--accent); }
+.prose .abs-sub { margin: 0 0 var(--s-4); font-size: var(--fs-sm); color: var(--text-2); }
+
+/* ---------- toolbar ---------- */
+.abs-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-3); }
+.abs-field-tree { flex: 1 1 240px; }
+.abs-field-tree .select { height: 36px; }
+.abs-field-mode { flex: 0 1 260px; }
+.abs-field-mode .seg { min-width: 220px; }
+.abs-random { height: 36px; }
+.prose .abs-blurb { margin: var(--s-3) 0 0; font-size: var(--fs-xs); color: var(--text-3); min-height: 1.6em; }
+
+/* ---------- status line ---------- */
+.abs-status {
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px var(--s-3);
+  margin-top: var(--s-4); font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.abs-status strong { color: var(--text); font-weight: 600; }
+.abs-stepno { color: var(--text-3); }
+
+/* ---------- tree canvas ---------- */
+.abs-scroll {
+  margin-top: var(--s-2);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  contain: inline-size;            /* the SVG's min-width must never widen the page column */
+  -webkit-overflow-scrolling: touch;
+  cursor: default;
+}
+.abs-svg {
+  display: block;
+  width: 100%;
+  min-width: min(var(--abs-w, 640px), 620px);  /* below this, scroll sideways instead of shrinking text */
+  height: auto;
+  max-width: none;
+  user-select: none; -webkit-user-select: none;
+}
+
+.abs-layer-rule { stroke: var(--border); stroke-dasharray: 2 5; }
+.abs-layer-label { font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: .1em; fill: var(--text-3); }
+
+/* edges */
+.abs-edge { stroke: var(--tree-link); stroke-width: 1.5; transition: stroke .25s, opacity .25s, stroke-width .25s; }
+.abs-edge.ed-walk { stroke: var(--border-strong); stroke-width: 2; }
+.abs-edge.is-path { stroke: var(--abs-path); stroke-width: 3; }
+.abs-edge.ed-pruned, .abs-edge.ed-cut { stroke: var(--text-3); stroke-dasharray: 4 4; opacity: .55; }
+.abs-edge.is-pv { stroke: var(--abs-pv); stroke-width: 4; opacity: 1; }
+
+/* scissors at the cut */
+.abs-cut { opacity: 0; transition: opacity .25s; pointer-events: none; }
+.abs-cut.is-on { opacity: 1; }
+.abs-cut-bg { fill: var(--solid); stroke: var(--abs-cut); stroke-width: 1.5; }
+.abs-cut-icon { fill: none; stroke: var(--abs-cut); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* nodes */
+.abs-node .abs-shape { stroke-width: 1.75; transition: fill .25s, stroke .25s, opacity .25s; }
+.abs-node.is-max .abs-shape { fill: var(--abs-max-fill); stroke: var(--abs-max); }
+.abs-node.is-min .abs-shape { fill: var(--abs-min-fill); stroke: var(--abs-min); }
+.abs-node.is-leaf .abs-shape { fill: var(--solid); stroke: var(--border-strong); }
+.abs-node.st-idle:not(.is-leaf) .abs-shape { fill: transparent; stroke-dasharray: 3 3; opacity: .7; }
+
+.abs-val { font-family: var(--font-mono); font-size: 14px; font-weight: 600; fill: var(--text); font-variant-numeric: tabular-nums; }
+.abs-node.is-leaf .abs-val { font-size: 13px; fill: var(--text-3); font-weight: 500; }
+.abs-node.is-leaf.st-done .abs-val { fill: var(--text); font-weight: 600; }
+.abs-node.is-leaf.st-done .abs-shape { stroke: var(--text-2); }
+.abs-name { font-family: var(--font-display); font-size: 11.5px; font-weight: 600; fill: var(--text-2); }
+
+/* pruned: greyed out and struck through */
+.abs-node.st-pruned { opacity: .38; }
+.abs-node.st-pruned .abs-shape { fill: transparent; stroke: var(--text-3); stroke-dasharray: 3 3; }
+.abs-strike { stroke: var(--abs-cut); stroke-width: 1.5; opacity: 0; }
+.abs-node.is-leaf.st-pruned .abs-strike { opacity: 1; }
+
+/* current node + open path */
+.abs-halo, .abs-halo-rect { fill: transparent; stroke: transparent; stroke-width: 2.5; transition: fill .2s, stroke .2s; }
+.abs-node.is-open .abs-halo { stroke: var(--abs-path); stroke-dasharray: 4 4; }
+.abs-node.is-current .abs-halo,
+.abs-node.is-current .abs-halo-rect { fill: var(--abs-cur-fill); stroke: var(--abs-cur); stroke-dasharray: none; }
+.abs-node.is-leaf.is-current .abs-halo-rect { transform: scale(1.35); }
+
+/* principal variation (final state) */
+.abs-node.is-pv .abs-shape { stroke: var(--abs-pv); stroke-width: 3; }
+.abs-node.is-pv .abs-val { fill: var(--text); }
+
+/* [alpha, beta] window pills */
+.abs-win { opacity: 0; transition: opacity .2s; }
+.abs-win.is-on { opacity: 1; }
+.abs-win-bg { fill: var(--solid); stroke: var(--border-strong); }
+.abs-win-text { font-family: var(--font-mono); font-size: 11.5px; fill: var(--text-2); }
+.abs-node.is-current .abs-win-bg { stroke: var(--abs-cur); }
+.abs-node.is-current .abs-win-text { fill: var(--text); }
+.abs-node.st-done:not(.is-current) .abs-win { opacity: .65; }
+.abs.is-minimax .abs-win { display: none; }
+
+/* ---------- caption ---------- */
+.prose .abs-caption {
+  margin: var(--s-3) 0 0;
+  min-height: 5.2em;
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--text);
+}
+.abs.is-finished .abs-caption { border-left-color: var(--good); }
+
+/* ---------- controls ---------- */
+.abs-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-3) var(--s-5); margin-top: var(--s-4); }
+.abs-controls .btn-row { gap: 6px; }
+.abs-controls [data-abs-play] { min-width: 86px; }
+.abs-flip { display: inline-flex; transform: scaleX(-1); }
+.abs-speed { flex: 0 1 220px; min-width: 160px; }
+.abs-speed .field-label { gap: 8px; }
+
+/* ---------- footer: comparison, legend, keys ---------- */
+.abs-foot { margin-top: var(--s-4); padding-top: var(--s-3); border-top: 1px solid var(--border); }
+.prose .abs-compare { margin: 0 0 var(--s-3); font-size: var(--fs-sm); color: var(--text-2); }
+.prose .abs-legend { display: flex; flex-wrap: wrap; gap: 6px var(--s-4); margin: 0 0 var(--s-3); padding: 0; list-style: none; }
+.prose .abs-legend li { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: var(--fs-xs); color: var(--text-3); }
+.abs-legend svg { width: 14px; height: 14px; }
+.lg-max { fill: var(--abs-max-fill); stroke: var(--abs-max); stroke-width: 1.8; }
+.lg-min { fill: var(--abs-min-fill); stroke: var(--abs-min); stroke-width: 1.8; }
+.lg-win, .lg-bound { font-family: var(--font-mono); font-size: 10.5px; padding: 0 6px; border-radius: 9px; border: 1px solid var(--border-strong); background: var(--solid); color: var(--text-2); }
+.lg-bound { border-radius: 5px; color: var(--text); }
+.lg-cut { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--abs-cut); color: var(--abs-cut); background: var(--solid); }
+.lg-pv { width: 18px; height: 4px; border-radius: 2px; background: var(--abs-pv); }
+.prose .abs-keys { margin: 0; font-size: var(--fs-xs); color: var(--text-3); }
+
+@media (max-width: 560px) {
+  .abs { padding: var(--s-4); margin-left: calc(-1 * var(--s-2)); margin-right: calc(-1 * var(--s-2)); }
+  .abs-field-mode, .abs-field-mode .seg { flex: 1 1 100%; min-width: 0; }
+  .abs-controls .btn-row { width: 100%; }
+  .abs-controls .btn-row .btn { flex: 1 1 auto; padding: 0 8px; }
+  .abs-speed { flex: 1 1 100%; }
+  .prose .abs-caption { min-height: 7em; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .abs *, .abs *::before, .abs *::after { transition: none !important; animation: none !important; }
+}

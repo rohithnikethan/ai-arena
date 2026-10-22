@@ -6,10 +6,12 @@ ints (explanations shown to humans use 1-indexed "column 4").
 Invalid input raises ``ValueError`` with a human-readable message.
 """
 
+import random
 import time
 
-from .board import Board, ROWS, COLS, has_four
+from .board import Board, ROWS, COLS, has_four, parse_int
 from .agents import create_agent, AlphaBetaAgent, MinimaxAgent
+from . import review as _review
 
 AGENT_TYPES = ("random", "greedy", "minimax", "alphabeta", "mcts")
 DEPTH_RANGE = (1, 8)
@@ -22,7 +24,7 @@ AGENT_PRESETS = {
     "random": {
         "type": "random",
         "label": "Random",
-        "description": "Drops a disc in a uniformly random legal column - the baseline every real AI must beat.",
+        "description": "A uniform random policy: drops a disc in any legal column - the baseline policy every other agent must beat.",
         "seed": None,
     },
     "greedy": {
@@ -34,20 +36,20 @@ AGENT_PRESETS = {
     "minimax": {
         "type": "minimax",
         "label": "Minimax",
-        "description": "Exhaustively searches every line 4 plies deep, assuming the opponent always picks the reply that hurts most.",
+        "description": "Depth-limited heuristic minimax: searches every line 4 plies deep, assuming the opponent always picks the reply that hurts most.",
         "depth": 4,
     },
     "alphabeta": {
         "type": "alphabeta",
         "label": "Alpha-Beta",
-        "description": "Minimax 6 plies deep that skips branches which provably cannot change the decision, searching center columns first.",
+        "description": "Minimax 6 plies deep with alpha-beta pruning and centre-first move ordering: the same value as Minimax, computed with far fewer nodes.",
         "depth": 6,
         "move_ordering": True,
     },
     "mcts": {
         "type": "mcts",
         "label": "Monte Carlo Tree Search",
-        "description": "Plays 1,500 quick simulated games, steering exploration with the UCT formula, and picks the most-visited move.",
+        "description": "1,500 iterations of UCT (UCB1 selection) with a tactical playout policy (win if possible, else block, else random); plays the most-visited move.",
         "iterations": 1500,
         "seed": None,
     },
@@ -70,8 +72,12 @@ def validate_board(board):
             raise ValueError(f"board row {r} must be a list of {COLS} cells")
         out = []
         for c, v in enumerate(row):
-            if isinstance(v, bool) or not isinstance(v, int) or v not in (0, 1, 2):
-                raise ValueError(f"board cell [{r}][{c}] must be 0, 1 or 2 (got {v!r})")
+            try:
+                v = parse_int(v, "cell")
+            except ValueError:
+                v = None
+            if v not in (0, 1, 2):
+                raise ValueError(f"board cell [{r}][{c}] must be 0, 1 or 2 (got {row[c]!r})")
             out.append(v)
         clean.append(out)
     for c in range(COLS):
@@ -89,18 +95,39 @@ def validate_board(board):
     b = Board.from_grid(clean)
     if has_four(b.bb[1]) and has_four(b.bb[2]):
         raise ValueError("impossible position: both players have four in a row")
+    for w, name in ((1, "Red"), (2, "Yellow")):
+        if has_four(b.bb[w]):
+            _check_win_was_last_move(b, w, name, n1, n2)
     return clean
 
 
+def _check_win_was_last_move(b, w, name, n1, n2):
+    """A won position is only reachable if the winning disc was the last one.
+
+    So the winner must have made the last move (Red: one disc more than
+    Yellow; Yellow: equal counts), and removing one of the winner's
+    top-of-column discs must leave no four in a row (otherwise play went on
+    after the game was already won).
+    """
+    if (n1 != n2 + 1) if w == 1 else (n1 != n2):
+        raise ValueError(f"impossible position: {name} has four in a row but "
+                         f"{'Yellow' if w == 1 else 'Red'} moved after that "
+                         f"(Red has {n1} discs, Yellow {n2})")
+    bits = b.bb[w]
+    for c in range(COLS):
+        top = b.heights[c] - 1
+        if top >= c * (ROWS + 1) and bits >> top & 1 and not has_four(bits ^ (1 << top)):
+            return
+    raise ValueError(f"impossible position: {name}'s four in a row could not all "
+                     "have been completed by the last disc played (the game "
+                     "continued after it was won)")
+
+
 def _int(value, name, default):
+    """``None`` -> ``default``; otherwise :func:`engine.board.parse_int`."""
     if value is None:
         return default
-    if isinstance(value, bool):
-        raise ValueError(f"{name} must be an integer")
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{name} must be an integer (got {value!r})") from None
+    return parse_int(value, name)
 
 
 def normalize_config(config):
@@ -136,10 +163,19 @@ def normalize_config(config):
         "type": t,
         "depth": depth,
         "iterations": iters,
-        "move_ordering": bool(config.get("move_ordering", True)),
-        "trace": bool(config.get("trace", True)),
+        "move_ordering": _bool(config.get("move_ordering"), "move_ordering", True),
+        "trace": _bool(config.get("trace"), "trace", True),
         "seed": seed,
     }
+
+
+def _bool(value, name, default):
+    """``None`` -> ``default``; otherwise a real boolean (``"false"``, ``0`` rejected)."""
+    if value is None:
+        return default
+    if not isinstance(value, bool):
+        raise ValueError(f"{name} must be true or false (got {value!r})")
+    return value
 
 
 def agent_label(cfg):
@@ -168,7 +204,11 @@ def game_state(board):
 def choose_move(board, player, config):
     """Ask an agent for a move. See SPEC.md for the result shape."""
     grid = validate_board(board)
-    if isinstance(player, bool) or player not in (1, 2):
+    try:
+        player = parse_int(player, "player")
+    except ValueError:
+        player = None
+    if player not in (1, 2):
         raise ValueError("player must be 1 (Red) or 2 (Yellow)")
     cfg = normalize_config(config)
     b = Board.from_grid(grid)
@@ -178,6 +218,9 @@ def choose_move(board, player, config):
                          f"{st['winner']} has four in a row")
     if st["draw"]:
         raise ValueError("the game is already over: the board is full")
+    if player != b.to_move:
+        raise ValueError(f"it is not player {player}'s turn "
+                         f"(player {b.to_move} to move on this board)")
     agent = create_agent(cfg)
     return agent.choose(b, player, trace=cfg["trace"])
 
@@ -189,24 +232,112 @@ def apply_move(board, column, player=None):
     st = b.state()
     if st["winner"] or st["draw"]:
         raise ValueError("the game is already over")
-    if isinstance(column, bool) or not isinstance(column, int) or not 0 <= column < COLS:
+    try:
+        column = parse_int(column, "column")
+    except ValueError:
+        column = None
+    if column is None or not 0 <= column < COLS:
         raise ValueError("column must be an integer 0-6")
     if not b.can_play(column):
         raise ValueError(f"column {column + 1} is full")
-    b.play(column, player or b.to_move)
+    if player is not None:
+        try:
+            player = parse_int(player, "player")
+        except ValueError:
+            player = None
+        if player not in (1, 2):
+            raise ValueError("player must be 1 (Red) or 2 (Yellow)")
+        if player != b.to_move:
+            raise ValueError(f"it is not player {player}'s turn "
+                             f"(player {b.to_move} to move on this board)")
+    b.play(column, b.to_move)
     return b.to_grid(), b.state()
 
 
-def run_match(config_a, config_b, games=10, seed=0):
+OPENING_PLIES_RANGE = (0, 6)
+
+
+def random_openings(count, plies, seed):
+    """``count`` seeded random openings of ``plies`` moves each (lists of columns).
+
+    Openings are drawn *without replacement* from all ``7 ** plies`` column
+    sequences while there are enough of them (every sequence is legal: no
+    column can overflow within 6 plies, and nobody can win in under 7), then
+    with replacement.  The same ``(count, plies, seed)`` always gives the same
+    list.
+    """
+    if plies <= 0 or count <= 0:
+        return [[] for _ in range(max(count, 0))]
+    rng = random.Random(f"opening-{seed}-{plies}")
+    space = COLS ** plies
+    codes = rng.sample(range(space), min(count, space))
+    while len(codes) < count:
+        codes.append(rng.randrange(space))
+    out = []
+    for code in codes:
+        cols = []
+        for _ in range(plies):
+            code, c = divmod(code, COLS)
+            cols.append(c)
+        out.append(cols)
+    return out
+
+
+def _validate_openings(openings):
+    if not isinstance(openings, (list, tuple)) or not openings:
+        raise ValueError("openings must be a non-empty list of move lists")
+    clean = []
+    for i, op in enumerate(openings):
+        if not isinstance(op, (list, tuple)) or len(op) > OPENING_PLIES_RANGE[1]:
+            raise ValueError(f"opening {i} must be a list of at most "
+                             f"{OPENING_PLIES_RANGE[1]} columns")
+        b = Board()
+        cols = []
+        for c in op:
+            try:
+                col = parse_int(c, "opening move")
+            except ValueError:
+                col = None
+            if col is None or not b.can_play(col):
+                raise ValueError(f"opening {i} contains an illegal move {c!r}")
+            b.play(col)
+            cols.append(col)
+        clean.append(cols)
+    return clean
+
+
+def run_match(config_a, config_b, games=10, seed=0, opening_plies=0, openings=None):
     """Play ``games`` games between two agents, alternating who moves first.
 
     Deterministic for a given ``seed``: stochastic agents without an explicit
     seed get one derived from ``seed``, the game index and their side.
+
+    With ``opening_plies = k > 0`` (clamped to 0-6) games are played in
+    pairs: games ``2i`` and ``2i + 1`` both start from the same random
+    ``k``-ply opening (see :func:`random_openings`), with colours swapped, so
+    deterministic agents no longer replay the same one or two games and any
+    advantage an opening gives one colour is cancelled out.  Opening moves
+    are forced, not chosen by the agents: they are not counted in the
+    agents' time/node averages, but they are included in each result's
+    ``moves`` (the full game record) and listed again in ``opening``.
+    ``first`` is the agent playing Red.
+
+    ``openings`` (optional) is an explicit list of openings (lists of
+    columns) used instead of random ones: games ``2i`` and ``2i + 1`` play
+    ``openings[i % len(openings)]``.  benchmark.py uses it to split one
+    experiment into independent chunks.
     """
     cfg_a = normalize_config(config_a)
     cfg_b = normalize_config(config_b)
     games = max(1, _int(games, "games", 10))
     seed = _int(seed, "seed", 0)
+    opening_plies = _int(opening_plies, "opening_plies", 0)
+    opening_plies = max(OPENING_PLIES_RANGE[0], min(OPENING_PLIES_RANGE[1], opening_plies))
+    if openings is not None:
+        openings = _validate_openings(openings)
+        opening_plies = max(len(o) for o in openings)
+    else:
+        openings = random_openings((games + 1) // 2, opening_plies, seed)
     totals = {"a": [0.0, 0, 0], "b": [0.0, 0, 0]}  # time_ms, nodes, decisions
     results = []
     a_wins = b_wins = draws = 0
@@ -222,7 +353,10 @@ def run_match(config_a, config_b, games=10, seed=0):
             agents[side] = create_agent(c)
         side_of = {1: first, 2: "b" if first == "a" else "a"}
         b = Board()
-        moves = []
+        opening = openings[(g // 2) % len(openings)]
+        for col in opening:
+            b.play(col)
+        moves = list(opening)
         winner = "draw"
         while True:
             p = b.to_move
@@ -247,7 +381,7 @@ def run_match(config_a, config_b, games=10, seed=0):
         else:
             draws += 1
         results.append({"first": first, "winner": winner, "moves": moves,
-                        "length": len(moves)})
+                        "length": len(moves), "opening": list(opening)})
 
     def summary(side, cfg):
         t = totals[side]
@@ -256,7 +390,38 @@ def run_match(config_a, config_b, games=10, seed=0):
                 "label": agent_label(cfg)}
 
     return {"games": games, "a_wins": a_wins, "b_wins": b_wins, "draws": draws,
-            "a": summary("a", cfg_a), "b": summary("b", cfg_b), "results": results}
+            "a": summary("a", cfg_a), "b": summary("b", cfg_b), "results": results,
+            "opening_plies": opening_plies}
+
+
+# Rough cost model for run_match, used by app.py to refuse requests that
+# would run for many minutes.  Per-move milliseconds measured on CPython
+# 3.13/3.14 on a mid-game sample (a slower laptop may need ~2x); a game is
+# assumed to give each agent at most ~21 moves.
+_MS_PER_MOVE = {
+    "random": {None: 0.05},
+    "greedy": {None: 0.2},
+    "minimax": {1: 0.1, 2: 0.5, 3: 2.0, 4: 8.0, 5: 35.0, 6: 180.0},
+    "alphabeta": {1: 0.1, 2: 0.2, 3: 0.6, 4: 1.5, 5: 4.0, 6: 15.0, 7: 45.0, 8: 170.0},
+}
+MCTS_MS_PER_ITERATION = 0.07
+MOVES_PER_AGENT_PER_GAME = 21
+
+
+def estimate_move_ms(config):
+    """Estimated milliseconds per move for an agent config (see cost model)."""
+    cfg = normalize_config(config)
+    t = cfg["type"]
+    if t == "mcts":
+        return cfg["iterations"] * MCTS_MS_PER_ITERATION
+    table = _MS_PER_MOVE[t]
+    return table.get(cfg["depth"], table.get(None, 0.0)) if t in ("minimax", "alphabeta")         else table[None]
+
+
+def estimate_match_seconds(config_a, config_b, games):
+    """Pessimistic wall-clock estimate (seconds) for ``run_match``."""
+    per_game = MOVES_PER_AGENT_PER_GAME * (estimate_move_ms(config_a) + estimate_move_ms(config_b))
+    return max(1, _int(games, "games", 10)) * per_game / 1000.0
 
 
 def compare_depth(board=None, depths=(1, 2, 3, 4, 5, 6)):
@@ -300,3 +465,16 @@ def compare_depth(board=None, depths=(1, 2, 3, 4, 5, 6)):
         row["alphabeta_ordered_ms"] = r["stats"]["time_ms"]
         rows.append(row)
     return rows
+
+
+def analyze_game(moves, depth=_review.DEFAULT_REVIEW_DEPTH):
+    """Post-game review of ``moves`` (columns from the empty board, Red first).
+
+    Every position is searched with exact (full-window) alpha-beta values for
+    every legal move, and each played move gets a badge
+    (best/good/inaccuracy/mistake/blunder) plus "missed_win" /
+    "allowed_forced_loss" tags.  ``depth`` is clamped to 1-8.  See
+    :mod:`engine.review` for the method, thresholds and result shape.
+    Raises ``ValueError`` for illegal moves or moves after the game ended.
+    """
+    return _review.analyze_game(moves, depth=depth)

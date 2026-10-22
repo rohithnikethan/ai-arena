@@ -1,0 +1,627 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+
+{#- ======================================================================
+    EDIT ME: presenters shown on the title and closing slides.
+    Leave the list empty to show nothing. Each entry is one line of text,
+    for example:  {% set presenters = ['First Last', 'First Last'] %}
+    ====================================================================== -#}
+{% set presenters = [] %}
+
+{% block title %}Present{% endblock %}
+{% block description %}AI Arena presentation: a full-screen slide deck about the project, its algorithms and its measured results.{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/present.css') }}">{% endblock %}
+
+{% macro kicker(n, label) -%}
+<div class="s-kicker"><span class="s-num">{{ '%02d' % n }}</span>{{ label }}</div>
+{%- endmacro %}
+
+{% macro window(cells, score, label) -%}
+<div class="win-row">
+  <span class="win-cells">{% for c in cells %}<i class="wc{% if c == 'R' %} r{% elif c == 'Y' %} y{% endif %}"></i>{% endfor %}</span>
+  <span class="win-score{% if score.startswith('+') %} pos{% elif score.startswith('−') %} neg{% endif %}">{{ score }}</span>
+  <span class="win-label">{{ label }}</span>
+</div>
+{%- endmacro %}
+
+{% block content %}
+<div class="deck" data-deck>
+  <div class="deck-progress" aria-hidden="true"><span class="deck-progress-fill" data-progress></span></div>
+
+  <div class="stage-wrap">
+    <div class="stage" data-stage>
+      <span class="edge-hint edge-hint-prev" aria-hidden="true">{{ icon('chevron-right', 28) }}</span>
+      <span class="edge-hint edge-hint-next" aria-hidden="true">{{ icon('chevron-right', 28) }}</span>
+
+      <!-- 1 · Title -->
+      <section class="slide slide-title" data-title="AI Arena">
+        <div class="slide-inner">
+          <div class="title-grid">
+            <div class="title-copy">
+              <div class="s-kicker">Foundations of AI · Course project</div>
+              <h1 class="t-hero"><span class="grad-text">AI Arena</span></h1>
+              <p class="t-sub">Watch AI think: five classic game-playing agents, each driven by a different decision algorithm, play Connect Four while their reasoning is drawn live.</p>
+              <p class="t-college">Rajalakshmi Engineering College</p>
+              {% if presenters %}
+              <ul class="presenters" aria-label="Presented by">
+                {% for p in presenters %}<li>{{ p }}</li>{% endfor %}
+              </ul>
+              {% endif %}
+              <p class="t-keys"><span class="kbd">→</span> next &nbsp;·&nbsp; <span class="kbd">F</span> full screen &nbsp;·&nbsp; <span class="kbd">S</span> speaker notes</p>
+            </div>
+            {# Decorative mid-game position (columns listed bottom-up; 1 = Red, 2 = Yellow). #}
+            {% set cols = [[2], [1, 2], [2, 1], [1, 2, 1, 2, 1], [2, 1], [1], []] %}
+            <div class="mini-board" aria-hidden="true">
+              {% for h in range(5, -1, -1) %}{% for c in range(7) %}{% set v = cols[c][h] if h < cols[c]|length else 0 %}<span class="mb-hole">{% if v %}<i class="mb-disc {{ 'r' if v == 1 else 'y' }}"></i>{% endif %}</span>{% endfor %}{% endfor %}
+            </div>
+          </div>
+        </div>
+        <div class="slide-notes" hidden>
+          <ul>
+            <li>Introduce yourselves and the one-line idea: Connect Four agents whose reasoning you can watch live.</li>
+            <li>The goal was to make adversarial search (AIMA Chapter 5) something you can see, not just read about.</li>
+            <li>Everything runs locally: pure Python engine, Flask, plain HTML/CSS/JS, no build step and no API keys.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 2 · Why Connect Four -->
+      <section class="slide" data-title="Why Connect Four">
+        <div class="slide-inner">
+          {{ kicker(2, 'The problem') }}
+          <h2 class="s-title">Why Connect Four?</h2>
+          <p class="s-lede">Two-player, deterministic, turn-taking, zero-sum, perfect information: the textbook setting for adversarial search.</p>
+          <div class="stat-grid">
+            <div class="stat"><div class="stat-num">≤ 7</div><div class="stat-label">branching factor: one move per non-full column</div></div>
+            <div class="stat"><div class="stat-num">42</div><div class="stat-label">plies at most: the board has 42 cells</div></div>
+            <div class="stat"><div class="stat-num">7<sup>42</sup> ≈ 3×10<sup>35</sup></div><div class="stat-label">loose bound on the size of the game tree</div></div>
+            <div class="stat stat-wide"><div class="stat-num">4,531,985,219,092</div><div class="stat-label">distinct legal positions, about 4.5×10<sup>12</sup> (Edelkamp &amp; Kissmann 2008)</div></div>
+            <div class="stat"><div class="stat-num">Solved</div><div class="stat-label">first player wins by starting in the center column (Allen and, independently, Allis, 1988)</div></div>
+          </div>
+          <p class="s-callout">{{ icon('info', 22) }}<span>Far too many positions to enumerate in Python during play, so every searching agent here uses <strong>depth-limited search or sampling</strong>.</span></p>
+        </div>
+        <div class="slide-notes" hidden>
+          <ul>
+            <li>Small enough to understand, big enough that brute force is hopeless: about 4.5 trillion legal positions.</li>
+            <li>Branching factor is at most 7 and shrinks as columns fill; a game lasts at most 42 plies.</li>
+            <li>The game is solved: James D. Allen announced a solution on 1 October 1988 and Victor Allis, independently, 15 days later (source: John Tromp's Connect Four page). Perfect play wins for the first player from the center. Our agents do not use that solution; they must search.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 3 · Problem formulation -->
+      <section class="slide" data-title="Problem formulation">
+        <div class="slide-inner">
+          {{ kicker(3, 'Problem formulation') }}
+          <h2 class="s-title">Connect Four as a search problem</h2>
+          <div class="def-table" role="table" aria-label="Problem formulation">
+            <div class="def-row" role="row"><span class="def-k" role="rowheader">State</span><span class="def-v" role="cell">A 6×7 grid, each cell empty, <span class="chip-r">Red</span> or <span class="chip-y">Yellow</span>; stored internally as two 49-bit integers</span></div>
+            <div class="def-row" role="row"><span class="def-k" role="rowheader">Initial state</span><span class="def-v" role="cell">The empty board. Red moves first.</span></div>
+            <div class="def-row" role="row"><span class="def-k mono" role="rowheader">TO-MOVE(s)</span><span class="def-v" role="cell">Red if the number of discs is even, otherwise Yellow</span></div>
+            <div class="def-row" role="row"><span class="def-k mono" role="rowheader">ACTIONS(s)</span><span class="def-v" role="cell">The columns 0..6 that hold fewer than 6 discs</span></div>
+            <div class="def-row" role="row"><span class="def-k mono" role="rowheader">RESULT(s, a)</span><span class="def-v" role="cell">The mover's disc lands in the lowest empty cell of column <em>a</em></span></div>
+            <div class="def-row" role="row"><span class="def-k mono" role="rowheader">IS-TERMINAL(s)</span><span class="def-v" role="cell">Four in a row (horizontal, vertical or either diagonal), or all 42 cells full</span></div>
+            <div class="def-row" role="row"><span class="def-k mono" role="rowheader">UTILITY(s, p)</span><span class="def-v" role="cell">Win +1, draw 0, loss −1; in search scaled to <strong class="mono">±(1,000,000 − ply)</strong> so faster wins and slower losses are preferred</span></div>
+          </div>
+        </div>
+        <div class="slide-notes" hidden>
+          <ul>
+            <li>This is the AIMA 4th edition Chapter 5 game formulation: initial state S<sub>0</sub>, TO-MOVE, ACTIONS, RESULT, IS-TERMINAL, UTILITY. (The 3rd edition called TO-MOVE and IS-TERMINAL PLAYER and TERMINAL-TEST.)</li>
+            <li>Gravity makes ACTIONS simple: at most seven columns, and RESULT drops the disc to the lowest empty cell.</li>
+            <li>Subtracting the ply from the win score makes the agent prefer the fastest win and the slowest loss.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 4 · The five agents -->
+      <section class="slide" data-title="The five agents">
+        <div class="slide-inner">
+          {{ kicker(4, 'The agents') }}
+          <h2 class="s-title">Five agent programs, one interface</h2>
+          {% set agents = [
+            ('dice', 'Random', 'A uniformly random legal column: the baseline policy every other agent must beat.', 'O(b)'),
+            ('target', 'Greedy', 'One ply: win if possible, else block, else the best heuristic score.', 'O(b·W)'),
+            ('tree', 'Minimax', 'Depth-limited heuristic minimax: assumes the opponent always replies optimally.', 'O(b<sup>d</sup>)'),
+            ('scissors', 'Alpha-Beta', 'Minimax with alpha-beta pruning: the same values with far fewer nodes; center-first ordering.', 'O(b<sup>d/2</sup>) best'),
+            ('sparkles', 'MCTS', 'Thousands of playouts, growing a tree toward promising moves with UCT.', 'O(n·(D + L))')
+          ] %}
+          <div class="agent-list">
+            {% for ic, name, line, cost in agents %}
+            <div class="agent-row">
+              <span class="agent-ic">{{ icon(ic, 30) }}</span>
+              <span class="agent-name">{{ name }}</span>
+              <span class="agent-line">{{ line }}</span>
+              <span class="agent-cost mono">{{ cost|safe }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          <p class="s-callout">{{ icon('info', 22) }}<span><strong>Agent vs algorithm</strong> (AIMA ch. 2): each player is an <em>agent</em>: it perceives the board and drops a disc. Its name says which <em>algorithm</em> runs inside its agent program.</span></p>
+          <p class="s-foot">All share <code>choose(board, player, trace=True)</code>. Depth 1–8 (Minimax ≤ 6), MCTS 50–20,000 iterations.</p>
+        </div>
+        <div class="slide-notes" hidden>
+          <ul>
+            <li>Terminology, if asked: in AIMA (ch. 2) an agent is anything that perceives its environment and acts on it; its agent function maps percepts to actions and its agent program implements that function. Each player here is an agent; Random, Greedy, Minimax, Alpha-Beta and MCTS name the algorithm inside its program. Minimax and Alpha-Beta are two programs for essentially the same agent function: same values, fewer nodes, different tie-breaking.</li>
+            <li>Ordered from weakest to strongest idea: no lookahead, one ply, depth-limited search, pruned search, sampling.</li>
+            <li>W = 69 is the number of four-cell scoring windows; b is the branching factor, d the depth.</li>
+            <li>Because they share one interface, any agent can play the human, play another agent, or be benchmarked.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 5 · Minimax -->
+      <section class="slide" data-title="Minimax">
+        <div class="slide-inner">
+          {{ kicker(5, 'Algorithm') }}
+          <h2 class="s-title">Minimax: assume the opponent is perfect</h2>
+          <div class="split split-fig">
+            <figure class="s-figure">
+              <svg viewBox="0 0 640 250" role="img" aria-label="A depth-two minimax tree. MIN nodes take the smallest leaf (3, 2, 2); the MAX root takes the largest, 3.">
+                <path class="pt-line pt-best" d="M320 50 L120 104"/><path class="pt-line" d="M320 50 L320 104"/><path class="pt-line" d="M320 50 L520 104"/>
+                <path class="pt-line pt-best" d="M120 134 L60 200"/><path class="pt-line" d="M120 134 L120 200"/><path class="pt-line" d="M120 134 L180 200"/>
+                <path class="pt-line" d="M320 134 L260 200"/><path class="pt-line" d="M320 134 L320 200"/><path class="pt-line" d="M320 134 L380 200"/>
+                <path class="pt-line" d="M520 134 L460 200"/><path class="pt-line" d="M520 134 L520 200"/><path class="pt-line" d="M520 134 L580 200"/>
+                <polygon class="pt-max" points="320,12 294,54 346,54"/><text class="pt-strong" x="320" y="47" text-anchor="middle">3</text>
+                <polygon class="pt-min" points="94,100 146,100 120,142"/><text class="pt-strong" x="120" y="120" text-anchor="middle">3</text>
+                <polygon class="pt-min" points="294,100 346,100 320,142"/><text class="pt-strong" x="320" y="120" text-anchor="middle">2</text>
+                <polygon class="pt-min" points="494,100 546,100 520,142"/><text class="pt-strong" x="520" y="120" text-anchor="middle">2</text>
+                {% for x, v in [(60, 3), (120, 12), (180, 8), (260, 2), (320, 4), (380, 6), (460, 14), (520, 5), (580, 2)] %}
+                <rect class="pt-node" x="{{ x - 20 }}" y="200" width="40" height="30" rx="7"/><text class="pt-text" x="{{ x }}" y="221" text-anchor="middle">{{ v }}</text>
+                {% endfor %}
+                <text class="pt-label" x="362" y="36">MAX takes the largest</text>
+                <text class="pt-label" x="8" y="86">MIN: smallest</text>
+              </svg>
+            </figure>
+            <ul class="s-points">
+              <li>Back values up the tree: MIN nodes take the minimum, MAX the maximum.</li>
+              <li>Cut off at depth <em>d</em>: proven results get <span class="mono">±(1,000,000 − ply)</span>, other leaves the <strong>heuristic</strong>, unless the side to move can win at once (slide 11).</li>
+              <li>Moves are made and unmade <strong>in place</strong> on the bitboards: no board is ever copied.</li>
+              <li>From the empty board it visits exactly 1 + 7 + … + 7<sup>d</sup> nodes (<strong>400</strong> at d = 3, checked by a test).</li>
+            </ul>
+          </div>
+          <p class="s-foot"><span class="mono">Time O(b<sup>d</sup>) · Space O(b·d) + leaf memo</span> &nbsp;·&nbsp; Anything beyond depth <em>d</em> is invisible: the horizon effect.</p>
+        </div>
+        <div class="slide-notes" hidden>
+          <ul>
+            <li>Walk the tree: each MIN node takes its smallest leaf (3, 2, 2), so MAX picks the left move worth 3. The highlighted line is the principal variation.</li>
+            <li>The cost is the problem: it visits every one of about b<sup>d</sup> positions, so plain Minimax is capped at depth 6 in the app.</li>
+            <li>Leaf values are memoised per search; that saves time but does not change the node count. The memo grows with the number of distinct leaves, so memory is O(b·d) for the search plus the memo.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 6 · Alpha-Beta -->
+      <section class="slide" data-title="Alpha-beta pruning">
+        <div class="slide-inner">
+          {{ kicker(6, 'Algorithm') }}
+          <h2 class="s-title">Alpha-beta pruning + move ordering</h2>
+          <div class="split">
+            <div>
+              <div class="ab-bounds">
+                <div class="ab-bound"><span class="ab-sym">α</span><span>the best value <strong>MAX</strong> can already guarantee</span></div>
+                <div class="ab-bound"><span class="ab-sym">β</span><span>the best value <strong>MIN</strong> can already guarantee</span></div>
+                <div class="ab-rule mono">if α ≥ β: skip the remaining siblings</div>
+              </div>
+              <ul class="s-points">
+                <li>The root value is <strong>identical to Minimax</strong> at the same depth; tests verify it on 7 positions × 4 depths × both orderings.</li>
+                <li>Best case O(b<sup>d/2</sup>) with perfect ordering (Knuth &amp; Moore 1975), O(b<sup>d</sup>) in the worst case.</li>
+              </ul>
+            </div>
+            <div class="order-card">
+              <div class="order-title">Center-first ordering</div>
+              {% set order = {3: 1, 2: 2, 4: 3, 1: 4, 5: 5, 0: 6, 6: 7} %}
+              <div class="order-cols">
+                {% for c in range(7) %}
+                <div class="order-col" style="--rank: {{ order[c] }}">
+                  <span class="order-rank">{{ order[c] }}</span>
+                  <span class="order-bar"></span>
+                  <span class="order-name">col {{ c + 1 }}</span>
+                </div>
+                {% endfor %}
+              </div>
+              <p class="order-note">Tried in the order columns 4, 3, 5, 2, 6, 1, 7 (0-indexed <span class="mono">3, 2, 4, 1, 5, 0, 6</span>). Central columns take part in the most four-in-a-row lines, so good moves come first and cut-offs come sooner.</p>
+            </div>
+          </div>
+        </div>
+        <div class="slide-notes" hidden>
+          <ul>
+            <li>Key point: alpha-beta is not an approximation. It returns the same value as Minimax, it just proves that some branches cannot matter. The chosen column can differ only among equally valued moves, because ties go to whichever move is searched first.</li>
+            <li>Pruning only pays off if good moves are tried first; center-first is a cheap, static ordering that works well for Connect Four.</li>
+            <li>For root moves that fail low the score is an upper bound, not an exact value; that is the nature of alpha-beta.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 7 · Heuristic -->
+      <section class="slide" data-title="Heuristic evaluation">
+        <div class="slide-inner">
+          {{ kicker(7, 'Evaluation') }}
+          <h2 class="s-title">Heuristic: window scoring</h2>
+          <div class="split">
+            <div>
+              <p class="s-lede">All <strong>69</strong> four-cell lines on the board are precomputed as bit masks: 24 horizontal, 21 vertical, 12 per diagonal direction.</p>
+              <div class="win-list">
+                {{ window(['R', 'R', 'R', ''], '+5', 'own three + one empty') }}
+                {{ window(['R', 'R', '', ''], '+2', 'own two + two empty') }}
+                {{ window(['R', 'Y', '', ''], '0', 'both colours: can never be four') }}
+                {{ window(['Y', 'Y', '', ''], '−1', 'opponent two + two empty') }}
+                {{ window(['Y', 'Y', 'Y', ''], '−4', 'opponent three: a threat') }}
+              </div>
+              <p class="s-foot">Plus <strong>±3</strong> for each own / opponent disc in the center column. Scored from Red's view here.</p>
+            </div>
+            <ul class="s-points">
+              <li>Proven wins (±1,000,000 − ply) always dominate: every heuristic score is a small integer.</li>
+              <li>A mild attacking bias (+5 vs −4). The function is static, so search checks a playable four for the side to move itself (slide 11).</li>
+              <li>Cheap: one call is 69 AND-and-popcount operations.</li>
+              <li>Not "admissible": that is an A* idea. AIMA (4th ed. §5.3.1) asks an evaluation to order terminals correctly, be cheap, and correlate with winning.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="slide-notes" hidden>
+          <ul>
+            <li>A window that already holds both colours is dead and scores nothing; the function counts only lines that can still become four.</li>
+            <li>The center column gets a bonus because it lies in 51 of the 69 windows, more than any other column (39, 27 and 15 for the columns further out; counted from engine/evaluate.WINDOWS).</li>
+            <li>Be honest about it: the weights are hand-tuned, not learned, and ignore Connect Four's odd/even threat parity. The evaluation does not know whose turn it is; the +5 / −4 asymmetry is just a mild attacking bias, and making it symmetric changed nothing measurable.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 8 · MCTS -->
+      <section class="slide" data-title="Monte Carlo Tree Search">
+        <div class="slide-inner">
+          {{ kicker(8, 'Algorithm') }}
+          <h2 class="s-title">MCTS with UCT</h2>
+          <div class="phases">
+            {% for n, name, desc in [(1, 'Selection', 'descend by UCB1'), (2, 'Expansion', 'add one untried move'), (3, 'Simulation', 'play out to the end'), (4, 'Backpropagation', '+1 win, +0.5 draw')] %}
+            <div class="phase-step"><span class="phase-n">{{ n }}</span><span class="phase-name">{{ name }}</span><span class="phase-desc">{{ desc }}</span></div>
+            {% endfor %}
+          </div>
+          <div class="split split-mcts">
+            <div class="uct" role="img" aria-label="UCT of i equals w i over n i, plus c times the square root of ln N over n i, with c equal to root 2, about 1.414">
+              <div class="uct-eq">
+                <span class="uct-lhs">UCT(<i>i</i>) =</span>
+                <span class="uct-term uct-exploit">
+                  <span class="uct-body"><span class="frac"><span><i>w</i><sub>i</sub></span><span><i>n</i><sub>i</sub></span></span></span>
+                  <span class="uct-tag">exploit</span>
+                </span>
+                <span class="uct-op">+</span>
+                <span class="uct-term uct-explore">
+                  <span class="uct-body"><span class="uct-c"><i>c</i> ·</span>
+                  <span class="sqrt"><svg class="sqrt-sign" viewBox="0 0 24 60" preserveAspectRatio="none" aria-hidden="true"><path d="M1 38 L7 33 L13 58 L23 1.5" vector-effect="non-scaling-stroke"/></svg><span class="sqrt-body"><span class="frac"><span>ln <i>N</i></span><span><i>n</i><sub>i</sub></span></span></span></span></span>
+                  <span class="uct-tag">explore</span>
+                </span>
+              </div>
+              <div class="uct-legend"><span><i>c</i> = √2 ≈ 1.414</span><span><i>N</i>: parent visits</span><span><i>n</i><sub>i</sub>, <i>w</i><sub>i</sub>: child visits, wins</span></div>
+            </div>
+            {% set visits = [226, 195, 129, 435, 271, 101, 143] %}
+            {% set rates = [46, 44, 38, 53, 49, 34, 40] %}
+            <figure class="visits">
+              <div class="visits-bars">
+                {% for v in visits %}
+                <div class="vcol{% if v == 435 %} is-best{% endif %}">
+                  <span class="vnum">{{ v }}</span>
+                  <span class="vbar"><span class="vfill" style="--h: {{ (v / 435 * 100)|round(1) }}%"></span></span>
+                  <span class="vrate">{{ rates[loop.index0] }}%</span>
+                  <span class="vname">{{ loop.index }}</span>
+                </div>
+                {% endfor %}
+              </div>
+              <figcaption>Real output, 1,500 iterations: visits per column (win rate below). The most-visited move, column 4, is played.</figcaption>
+            </figure>
+          </div>
+        </div>
+        <div class="slide-notes" hidden>
+          <ul>
+            <li>No evaluation function: MCTS learns from the win, loss or draw outcomes of playouts. Its only game knowledge beyond the rules is the rollouts' one-move tactics (next point).</li>
+            <li>The first UCB1 term exploits moves that have done well; the second explores moves tried rarely. c = √2 is the constant of UCB1 (Auer, Cesa-Bianchi &amp; Fischer 2002); we did not tune it for Connect Four.</li>
+            <li>Rollouts are lightly tactical: take an immediate win, otherwise block an immediate loss. That removes a lot of noise cheaply.</li>
+            <li>The chart is real engine output (seed 1, Yellow to move after 4, 4, 3, 5, 5): 435 of 1,500 visits went to column 4, so it plays the "robust child".</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 9 · Bitboard -->
+      <section class="slide" data-title="Bitboard representation">
+        <div class="slide-inner">
+          {{ kicker(9, 'Engineering') }}
+          <h2 class="s-title">A board is two integers</h2>
+          <div class="split">
+            <div class="bits" aria-label="Bit index layout: bit = column × 7 + height; the top row is an always-empty sentinel row">
+              {% for h in range(6, -1, -1) %}
+              {% for c in range(7) %}<span class="bit{% if h == 6 %} is-sentinel{% endif %}{% if c == 3 and h < 2 %} is-on{% endif %}">{{ c * 7 + h }}</span>{% endfor %}
+              {% endfor %}
+              <span class="bits-caption">top row: sentinel, always 0 · highlighted: bits 21 and 22, two discs at the bottom of column 4</span>
+            </div>
+            <div>
+              <div class="code-line"><span class="code-k">move</span><code>bb[p] |= 1 &lt;&lt; heights[c]; heights[c] += 1</code></div>
+              <div class="code-line"><span class="code-k">win?</span><code>m = bb &amp; (bb &gt;&gt; s);&nbsp; m &amp; (m &gt;&gt; 2s) ≠ 0</code></div>
+              <ul class="s-points">
+                <li>One integer per player, 7 bits per column. Make and undo are O(1), so search never copies a board.</li>
+                <li>Four-in-a-row for shifts <span class="mono">s ∈ {1, 7, 8, 6}</span> (vertical, horizontal, both diagonals): eight shift-and-AND operations, no loops over cells.</li>
+                <li>The empty sentinel row stops lines wrapping from one column into the next (<span class="mono">test_no_wraparound</span>).</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="slide-notes" hidden>
+          <ul>
+            <li>This is what makes depth 6 affordable in pure Python: a move is one OR and one increment.</li>
+            <li>Explain the win test: shifting by s and ANDing finds pairs; doing it again by 2s finds four in a row.</li>
+            <li>Credit: two per-player bitboards with 7 bits per column and a heights array is the layout of John Tromp's Fhourstones solver; the whole-board threat check used at the search horizon follows Pascal Pons' solver tutorial.</li>
+            <li>The public API still uses a friendly 6×7 list of lists; Board.from_grid and Board.to_grid convert at the boundary.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 10 · Results -->
+      <section class="slide" data-title="Results">
+        <div class="slide-inner">
+          {{ kicker(10, 'Results') }}
+          <h2 class="s-title">Measured, not claimed</h2>
+          <div class="split split-results">
+            <div class="panel">
+              <div class="panel-title">Nodes searched from the empty board, depth 6</div>
+              {% set nodes = [('Minimax', 137257, '239.0 ms', 'm'), ('Alpha-beta', 16183, '41.3 ms', 'a'), ('Alpha-beta + ordering', 1493, '3.4 ms', 'o')] %}
+              <div class="hbars">
+                {% for name, n, ms, cls in nodes %}
+                <div class="hbar hbar-{{ cls }}">
+                  <span class="hbar-name">{{ name }}</span>
+                  <span class="hbar-track"><span class="hbar-fill" style="--w: {{ (n / 137257 * 100)|round(2) }}%"></span></span>
+                  <span class="hbar-val mono">{{ '{:,}'.format(n) }}<small>{{ ms }}</small></span>
+                </div>
+                {% endfor %}
+              </div>
+              <div class="kpis">
+                <div class="kpi"><span class="kpi-num">98.9%</span><span class="kpi-label">fewer nodes (about 92×), same root value</span></div>
+                <div class="kpi"><span class="kpi-num">10.8×</span><span class="kpi-label">fewer again from center-first ordering</span></div>
+                <div class="kpi"><span class="kpi-num">1.2×</span><span class="kpi-label">the minimal tree (1,493 vs 1,249 nodes)</span></div>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">Tournament score, 160 games each [95% CI]</div>
+              {% set standings = [('Alpha-Beta (d6)', 77, '70, 83', '7.2'), ('MCTS (1,500)', 76, '69, 82', '69.0'), ('Minimax (d4)', 71, '64, 78', '6.2'), ('Greedy', 26, '19, 33', '0.0'), ('Random', 0, '0, 2', '0.0')] %}
+              <div class="hbars hbars-standings">
+                {% for name, pct, ci, ms in standings %}
+                <div class="hbar{% if loop.index <= 2 %} is-top{% endif %}">
+                  <span class="hbar-name">{{ name }}</span>
+                  <span class="hbar-track"><span class="hbar-fill" style="--w: {{ pct }}%"></span></span>
+                  <span class="hbar-val mono">{{ pct }}%<small>[{{ ci }}] · {{ ms }} ms</small></span>
+                </div>
+                {% endfor %}
+              </div>
+              <p class="panel-note">Alpha-Beta-6 and MCTS are statistically tied (head-to-head 15–21–4). AB-6 costs about what Minimax-4 does per move and beat it 26–11–3.</p>
+            </div>
+          </div>
+          <p class="s-foot"><span class="mono">python benchmark.py</span> · 40 games per pairing: 20 random 2-ply openings × both colours, seed 0 · Wilson 95% CIs</p>
+        </div>
+        <div class="slide-notes" hidden>
+          <ul>
+            <li>Pruning is where the power comes from: 137,257 nodes down to 1,493 at depth 6, 98.9% fewer for the same root value. Even without ordering, pruning skips 88.2% of the tree (16,183 nodes). Times vary by machine (239 ms to 3.4 ms in this run); node counts do not.</li>
+            <li>Ordering alone gives a further 10.8× (16,183 to 1,493). The Knuth–Moore minimal tree at depth 6 has 1,249 nodes (685 of them leaves), so ordered alpha-beta is within 1.2× of the theoretical best case. In AIMA's definition of the effective branching factor (N + 1 = 1 + b* + … + (b*)<sup>d</sup>), b* is 7.00 for Minimax, 4.84 unordered, 3.17 ordered, and 3.07 for the minimal tree.</li>
+            <li>Say it plainly: Alpha-Beta-6 (77% [70, 83]) and MCTS-1,500 (76% [69, 82]) are statistically tied; their intervals overlap and MCTS led the head-to-head 21–15–4, which is also within the noise. MCTS needs no evaluation function but spends about ten times longer per move (69 vs 7.2 ms).</li>
+            <li>Design: 20 random 2-ply openings, each played with both colours, because two deterministic agents from the empty board just replay the same one or two games. Greedy still took one game of 40 from Alpha-Beta-6: depth 6 is far short of 42 plies. The intervals are Wilson 95% intervals with a draw counted as half a win; that is an approximation, because a score with draws is not strictly binomial.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 11 · The odd-depth bug -->
+      <section class="slide" data-title="A bug we found">
+        <div class="slide-inner">
+          {{ kicker(11, 'What we found and fixed') }}
+          <h2 class="s-title">A bug we found: the horizon at odd depths</h2>
+          {# Alpha-Beta's score (%) against MCTS (1,000 iterations), 98 games per depth (benchmark.py depth sweep). #}
+          {% set before = [1, 37, 21, 53, 41, 55, 55] %}
+          {% set after = [19, 41, 43, 52, 52, 61, 58] %}
+          <div class="split split-fig">
+            <figure class="s-figure">
+              <svg viewBox="0 0 560 372" role="img" aria-label="Alpha-Beta's score against MCTS by search depth 1 to 7. Before the fix: 1, 37, 21, 53, 41, 55 and 55 percent, dipping at depths 3 and 5. After the fix: 19, 41, 43, 52, 52, 61 and 58 percent.">
+                <path class="pt-line" d="M60 300 H548"/>
+                <path class="pt-line" d="M60 170 H548" stroke-dasharray="6 6"/>
+                <path class="pt-line" d="M60 40 H548" stroke-dasharray="2 6"/>
+                <text class="pt-label" x="52" y="307" text-anchor="end">0%</text>
+                <text class="pt-label" x="52" y="177" text-anchor="end">50%</text>
+                <text class="pt-label" x="52" y="47" text-anchor="end">100%</text>
+                {% for d in range(1, 8) %}<text class="pt-text" x="{{ 78 + (d - 1) * 76 }}" y="334" text-anchor="middle">{{ d }}</text>{% endfor %}
+                <text class="pt-label" x="548" y="366" text-anchor="end">search depth</text>
+                <polyline points="{% for p in before %}{{ 78 + (loop.index - 1) * 76 }},{{ (300 - p * 2.6)|round(1) }} {% endfor %}" fill="none" style="stroke: var(--text-3)" stroke-width="3" stroke-dasharray="9 7"/>
+                <polyline points="{% for p in after %}{{ 78 + (loop.index - 1) * 76 }},{{ (300 - p * 2.6)|round(1) }} {% endfor %}" fill="none" style="stroke: var(--accent)" stroke-width="5"/>
+                {% for p in before %}<circle cx="{{ 78 + (loop.index - 1) * 76 }}" cy="{{ (300 - p * 2.6)|round(1) }}" r="6" style="fill: var(--bg-2); stroke: var(--text-3)" stroke-width="3"/>{% endfor %}
+                {% for p in after %}<circle cx="{{ 78 + (loop.index - 1) * 76 }}" cy="{{ (300 - p * 2.6)|round(1) }}" r="7" style="fill: var(--accent)"/>{% endfor %}
+                <text class="pt-strong" x="{{ 78 + (3 - 1) * 76 }}" y="{{ (300 - 21 * 2.6 + 32)|round(1) }}" text-anchor="middle" style="fill: var(--text-2)">21</text>
+                <text class="pt-strong" x="{{ 78 + (5 - 1) * 76 }}" y="{{ (300 - 41 * 2.6 + 32)|round(1) }}" text-anchor="middle" style="fill: var(--text-2)">41</text>
+                <text class="pt-strong" x="{{ 78 + (3 - 1) * 76 }}" y="{{ (300 - 43 * 2.6 - 22)|round(1) }}" text-anchor="middle" style="fill: var(--accent)">43</text>
+                <text class="pt-strong" x="{{ 78 + (5 - 1) * 76 }}" y="{{ (300 - 52 * 2.6 - 22)|round(1) }}" text-anchor="middle" style="fill: var(--accent)">52</text>
+                <path d="M74 20 H110" style="stroke: var(--accent)" stroke-width="5"/><text class="pt-label" x="118" y="27">after the fix</text>
+                <path d="M290 20 H326" style="stroke: var(--text-3)" stroke-width="3" stroke-dasharray="9 7"/><text class="pt-label" x="334" y="27">before</text>
+              </svg>
+              <p class="panel-note">Alpha-Beta's score vs MCTS (1,000 iterations), 98 games per depth.</p>
+            </figure>
+            <ul class="s-points s-points-tight">
+              <li><strong>Hypothesis:</strong> the evaluation is static. At odd depths the opponent moves next at the leaf, so "opponent wins next move" scored as a mere −4.</li>
+              <li><strong>Measured:</strong> 14–18% of pre-fix lines at depths 3, 5 and 7 ended one move before a loss the search could not see.</li>
+              <li><strong>Three fixes tested:</strong> side-to-move scoring and symmetric weights changed nothing; a leaf win check did.</li>
+              <li><strong>Chosen, because it is exact:</strong> if the side to move can win at once, score the proven result. No extra nodes.</li>
+              <li><strong>Result:</strong> depth 3 vs Greedy 65% → 94%; strength now rises with depth.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="slide-notes" hidden>
+          <ul>
+            <li>Symptom: depths 3 and 5 played no better than 2 and 4. In the old benchmark Greedy split 20–20 with Alpha-Beta at depths 1, 3 and 5 but lost 0–40 at depths 2 and 4; against MCTS the score dipped from 37% (depth 2) to 21% (depth 3).</li>
+            <li>Our evaluation function is static: it doesn't know whose turn it is. At odd search depths the opponent moves next at the leaf, so a position where the opponent can win on the next move was scored as a mere "opponent three, −4". The agent walked into one-move losses just beyond its horizon.</li>
+            <li>Measurement: on 300 random positions, 41 of 281 principal-variation leaves at depth 3, 48 of 274 at depth 5 and 37 of 267 at depth 7 had an immediate win for the opponent to move.</li>
+            <li>We measured three candidate fixes. Scoring leaves from the side to move's view and making the weights symmetric made no measurable difference. The one that worked, and is exactly correct, is to check at each leaf whether the side to move can win immediately and score that as the proven win or loss it is.</li>
+            <li>It costs a few whole-board bit operations (Pascal Pons' threat trick), no extra nodes; Minimax and Alpha-Beta share it, so their values are still identical. After the fix, depth 3 beats Greedy 94% instead of 65%, and strength rises with depth (neighbouring depths are within the noise).</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 12 · Explainability -->
+      <section class="slide" data-title="Explainability">
+        <div class="slide-inner">
+          {{ kicker(12, 'Explainability') }}
+          <h2 class="s-title">Every move comes with a sentence and a tree</h2>
+          <div class="split">
+            <div class="quotes">
+              <blockquote class="quote"><span class="quote-who">Alpha-Beta, depth 6</span>"Alpha-beta with center-first ordering (depth 6, 2,657 positions, 3,088 branches pruned) rates column 4 best with a score of +4; pruning proved no other column scores higher."</blockquote>
+              <blockquote class="quote"><span class="quote-who">MCTS, 1,500 iterations</span>"Most-explored move after 1,500 simulations: column 4 (435 visits, 53% win rate); runner-up column 5 (271 visits, 49%)."</blockquote>
+            </div>
+            <ul class="s-points">
+              <li><strong>Grounded:</strong> tactical facts (win, block, double threat, threat) are verified on the bitboards before they are stated.</li>
+              <li><strong>Visible:</strong> the search tree (first 3 plies, at most 400 nodes) marks pruned branches and the expected line of play.</li>
+              <li><strong>Honest:</strong> every number in the AI Mind panel comes from the real search, and a test checks that tracing never changes the move or the node counts.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="slide-notes" hidden>
+          <ul>
+            <li>Why it matters: a black box that says "column 4" teaches nothing. Seeing pruned branches and visit counts makes the algorithms concrete.</li>
+            <li>The explanations are not generated text: they are assembled from checks on the position plus the agent's own search statistics.</li>
+            <li>It also helps debugging: when an agent plays badly, the tree shows whether the heuristic or the horizon misled it.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 13 · Live demo -->
+      <section class="slide" data-title="Live demo">
+        <div class="slide-inner">
+          {{ kicker(13, 'Live demo') }}
+          <h2 class="s-title">Let's watch it think</h2>
+          {% set demos = [
+            ('/play', 'play', 'Play', 'You against any agent, with the AI Mind panel beside the board.'),
+            ('/arena', 'arena', 'Arena', 'Two agents move by move, both minds visible.'),
+            ('/lab', 'lab', 'Lab', 'Tournaments and Minimax vs alpha-beta node counts.'),
+            ('/learn', 'learn', 'Learn', 'The theory, with diagrams and a complexity table.')
+          ] %}
+          <div class="demo-grid">
+            {% for href, ic, name, desc in demos %}
+            <a class="demo-card{% if loop.first %} is-primary{% endif %}" href="{{ href }}" target="_blank" rel="noopener">
+              <span class="demo-ic">{{ icon(ic, 34) }}</span>
+              <span class="demo-name">{{ name }} {{ icon('arrow-right', 26) }}</span>
+              <span class="demo-desc">{{ desc }}</span>
+            </a>
+            {% endfor %}
+          </div>
+          <p class="s-foot">Each page opens in a new tab. Come back to this tab, or to <span class="mono" data-here>/present#13</span>, to continue from this slide.</p>
+        </div>
+        <div class="slide-notes" hidden>
+          <ul>
+            <li>Play: pick Alpha-Beta, set up a three-in-a-row and show it blocks; read out its explanation and point at the pruned branches.</li>
+            <li>Arena: Alpha-Beta vs MCTS, step move by move; compare per-column scores with MCTS visit counts.</li>
+            <li>Lab: run the depth comparison to reproduce the node-count gap live.</li>
+            <li>Keep it to about two minutes, then switch back to this tab.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 14 · Limitations -->
+      <section class="slide" data-title="Limitations and future work">
+        <div class="slide-inner">
+          {{ kicker(14, 'Reflection') }}
+          <h2 class="s-title">Limitations &amp; future work</h2>
+          <div class="split split-even">
+            <div class="panel">
+              <div class="panel-title">{{ icon('alert', 22) }} Limitations</div>
+              <ul class="s-points s-points-tight">
+                <li><strong>Python speed:</strong> about 0.4M nodes/s for alpha-beta, about 17k tree nodes/s for MCTS (benchmark averages).</li>
+                <li>No transposition table and no iterative deepening; depth is fixed.</li>
+                <li>Static center-first ordering; no killer moves or history heuristic.</li>
+                <li>Hand-tuned heuristic that ignores odd/even threat parity (zugzwang).</li>
+                <li>Plain UCT: no RAVE, no tree reuse, c = √2 not tuned.</li>
+              </ul>
+            </div>
+            <div class="panel">
+              <div class="panel-title">{{ icon('sparkles', 22) }} Future work</div>
+              <ul class="s-points s-points-tight">
+                <li>Transposition table keyed by the bitboard pair, plus iterative deepening with a time budget.</li>
+                <li>A perfect-play solver for late positions, to show heuristic vs solved play.</li>
+                <li>Threat-parity features, with weights tuned by self-play or regression.</li>
+                <li>MCTS: tree reuse, RAVE, a tuned c; an "equal time" MCTS vs Alpha-Beta experiment.</li>
+                <li>Elo ratings from larger tournaments.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="slide-notes" hidden>
+          <ul>
+            <li>Connect the limitations to the results: the odd-depth weakness turned out to be the static evaluation, not the weights (slide 11). Threat parity is still missing; whether it explains Alpha-Beta-6's one loss to Greedy we have not measured.</li>
+            <li>A compiled engine (C or Rust) would be substantially faster and could search deeper; Python was chosen for clarity. The speeds on the slide are benchmark averages on the development machine: 2,857 nodes in 7.2 ms per Alpha-Beta move, 1,180 tree nodes in 69 ms per MCTS move.</li>
+            <li>Alpha-beta column bars are exact only for the chosen move (others are upper bounds), and 40 games per pairing still gives intervals about ±15 points wide.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 15 · Thank you -->
+      <section class="slide slide-end" data-title="Thank you">
+        <div class="slide-inner">
+          <div class="end-grid">
+            <div>
+              <div class="s-kicker">AI Arena · Rajalakshmi Engineering College</div>
+              <h2 class="t-hero"><span class="grad-text">Thank you.</span></h2>
+              <p class="t-sub">Questions?</p>
+              {% if presenters %}
+              <ul class="presenters" aria-label="Presented by">
+                {% for p in presenters %}<li>{{ p }}</li>{% endfor %}
+              </ul>
+              {% endif %}
+            </div>
+            <div class="refs">
+              <div class="panel-title">References</div>
+              <ol>
+                <li>Russell &amp; Norvig, <em>AIMA</em>, 4th ed., ch. 2 and 5 (2020)</li>
+                <li>Knuth &amp; Moore, <em>Artificial Intelligence</em> 6(4) (1975)</li>
+                <li>Pearl, <em>Commun. ACM</em> 25(8) (1982)</li>
+                <li>Auer, Cesa-Bianchi &amp; Fischer, <em>Machine Learning</em> 47 (2002)</li>
+                <li>Kocsis &amp; Szepesvári, ECML, LNCS 4212 (2006)</li>
+                <li>Browne et al., <em>IEEE TCIAIG</em> 4(1) (2012)</li>
+                <li>Allen (1988); Allis, M.Sc. thesis, VU Amsterdam (1988)</li>
+                <li>Edelkamp &amp; Kissmann, KI 2008, LNCS 5243 (2008)</li>
+                <li>Tromp, <span class="mono">tromp.github.io/c4</span>; Pons, <span class="mono">blog.gamesolver.org</span></li>
+              </ol>
+            </div>
+          </div>
+        </div>
+        <div class="slide-notes" hidden>
+          <ul>
+            <li>Summarise in one line: same game, five agent programs built on four distinct decision rules, and you can watch each one decide.</li>
+            <li>Likely questions: why Alpha-Beta and MCTS tie (a good heuristic plus pruning against playouts that need none, at ten times the time per move); why not a perfect solver (the point was classic search); how results were measured (benchmark.py: 40 games per pairing from random openings with colours swapped, Wilson intervals, seed 0).</li>
+            <li>Offer to rerun any number live in the Lab.</li>
+          </ul>
+        </div>
+      </section>
+
+      <div class="stage-foot" aria-hidden="true"><span>AI Arena</span><span class="mono" data-stage-count>1 / 15</span></div>
+    </div>
+  </div>
+
+  <aside class="notes" id="deck-notes" data-notes hidden aria-label="Speaker notes">
+    <div class="notes-head">
+      <span class="notes-title">{{ icon('info', 16) }} Speaker notes · <span data-notes-title></span></span>
+      <span class="notes-next">Next: <span data-notes-next></span></span>
+      <button class="icon-btn sm" type="button" data-notes-close aria-label="Hide speaker notes">{{ icon('close', 16) }}</button>
+    </div>
+    <div class="notes-body" data-notes-body></div>
+  </aside>
+
+  <div class="deck-bar" role="toolbar" aria-label="Presentation controls">
+    <a class="deck-home" href="/" title="Back to AI Arena">{{ icon('logo', 16) }}<span>AI Arena</span></a>
+    <div class="deck-nav">
+      <button class="icon-btn" type="button" data-prev aria-label="Previous slide" title="Previous (←)"><span class="flip">{{ icon('chevron-right', 20) }}</span></button>
+      <span class="deck-count"><span class="mono" data-count>1 / 15</span><span class="deck-slide-title" data-slide-title></span></span>
+      <button class="icon-btn" type="button" data-next aria-label="Next slide" title="Next (→)">{{ icon('chevron-right', 20) }}</button>
+    </div>
+    <div class="deck-actions">
+      <button class="icon-btn" type="button" data-notes-toggle aria-controls="deck-notes" aria-expanded="false" aria-label="Speaker notes" title="Speaker notes (S)">{{ icon('learn', 18) }}</button>
+      <button class="icon-btn theme-toggle" type="button" data-theme-toggle aria-label="Switch colour theme" title="Toggle light / dark">
+        <span class="theme-icon theme-icon-sun">{{ icon('sun', 18) }}</span>
+        <span class="theme-icon theme-icon-moon">{{ icon('moon', 18) }}</span>
+      </button>
+      <button class="icon-btn" type="button" data-fullscreen aria-pressed="false" aria-label="Full screen" title="Full screen (F)">{{ icon('maximize', 18) }}</button>
+    </div>
+  </div>
+  <div class="sr-only" aria-live="polite" data-announce></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/present.js') }}"></script>
+{% endblock %}

@@ -130,6 +130,11 @@
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     zap: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
     maximize: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+    minimize: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
+    /* "Fit to view": a crosshair, distinct from the full-screen corners. */
+    fit: '<circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
+    refresh: '<path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/>',
+    present: '<rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M12 16v4M8 21h8"/><path d="m10 8 4 2-4 2z"/>',
     trophy: '<path d="M8 21h8M12 17v4"/><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
     sparkles: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
     dice: '<rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="15" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/><circle cx="9" cy="15" r="1" fill="currentColor"/>',
@@ -150,10 +155,20 @@
     if (persist !== false) { try { localStorage.setItem('ai-arena-theme', theme); } catch (e) { /* ignore */ } }
     document.dispatchEvent(new CustomEvent('themechange', { detail: { theme: theme } }));
   }
+  /* The toggle's accessible name says what pressing it will do. */
+  function syncThemeToggles() {
+    var label = currentTheme() === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+    $all('[data-theme-toggle]').forEach(function (btn) {
+      btn.setAttribute('aria-label', label);
+      btn.setAttribute('title', label);
+    });
+  }
   function initTheme() {
     $all('[data-theme-toggle]').forEach(function (btn) {
       btn.addEventListener('click', function () { setTheme(currentTheme() === 'dark' ? 'light' : 'dark'); });
     });
+    syncThemeToggles();
+    document.addEventListener('themechange', syncThemeToggles);
     if (window.matchMedia) {
       var mq = window.matchMedia('(prefers-color-scheme: light)');
       var onChange = function (e) {
@@ -219,6 +234,82 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* Full screen (shared by the AI Mind tree and the Present deck)       */
+  /*                                                                    */
+  /*   A.fullscreen.supported()          -> true if the Fullscreen API   */
+  /*                                        is available and allowed     */
+  /*   A.fullscreen.toggle(el, opts)     -> enter or leave full screen   */
+  /*   A.fullscreen.isActive(el)         -> true while el is full screen */
+  /*                                        (real or CSS fallback)       */
+  /*   A.fullscreen.exit(el)                                             */
+  /*                                                                    */
+  /* toggle() must be called synchronously inside a click / key handler. */
+  /* It calls el.requestFullscreen(); if that is unsupported or rejected */
+  /* it shows a toast ("Full screen is blocked here") and calls          */
+  /* opts.onFallback(el) when given, otherwise it adds the CSS overlay   */
+  /* class "is-fs-fallback" to el (position: fixed; inset: 0; Esc or a   */
+  /* second toggle closes it). Every change dispatches "arena:fullscreen"*/
+  /* on el with detail {active: bool, fallback: bool}.                   */
+  /* ------------------------------------------------------------------ */
+  var FS_CLASS = 'is-fs-fallback';
+  function fsSupported() {
+    return !!(document.fullscreenEnabled && document.documentElement.requestFullscreen);
+  }
+  function fsIsActive(el) {
+    if (!el) return false;
+    return document.fullscreenElement === el || el.classList.contains(FS_CLASS);
+  }
+  function fsEmit(el, active, fallback) {
+    el.dispatchEvent(new CustomEvent('arena:fullscreen', { bubbles: true, detail: { active: active, fallback: !!fallback } }));
+  }
+  function fsFallbackOn(el) {
+    if (el.classList.contains(FS_CLASS)) return;
+    el.classList.add(FS_CLASS);
+    document.documentElement.classList.add('has-fs-fallback');
+    el._fsKey = function (e) { if (e.key === 'Escape') { e.preventDefault(); fsFallbackOff(el); } };
+    document.addEventListener('keydown', el._fsKey);
+    fsEmit(el, true, true);
+  }
+  function fsFallbackOff(el) {
+    if (!el.classList.contains(FS_CLASS)) return;
+    el.classList.remove(FS_CLASS);
+    if (!document.querySelector('.' + FS_CLASS)) document.documentElement.classList.remove('has-fs-fallback');
+    if (el._fsKey) { document.removeEventListener('keydown', el._fsKey); el._fsKey = null; }
+    fsEmit(el, false, true);
+  }
+  function fsFallback(el, opts) {
+    toast('Press F11, or open this page in its own browser tab.', { title: 'Full screen is blocked here', timeout: 6000 });
+    if (opts && typeof opts.onFallback === 'function') opts.onFallback(el);
+    else fsFallbackOn(el);
+  }
+  function fsExit(el) {
+    if (!el) return;
+    if (el.classList.contains(FS_CLASS)) { fsFallbackOff(el); return; }
+    if (document.fullscreenElement === el && document.exitFullscreen) {
+      var p = document.exitFullscreen();
+      if (p && p.catch) p.catch(function () { /* already out */ });
+    }
+  }
+  function fsToggle(el, opts) {
+    if (!el) return false;
+    if (fsIsActive(el)) { fsExit(el); return false; }
+    if (!fsSupported()) { fsFallback(el, opts); return true; }
+    var p;
+    try { p = el.requestFullscreen({ navigationUI: 'hide' }); }
+    catch (e) { fsFallback(el, opts); return true; }
+    if (p && p.catch) p.catch(function () { fsFallback(el, opts); });
+    return true;
+  }
+  var fsLast = null;
+  document.addEventListener('fullscreenchange', function () {
+    var cur = document.fullscreenElement || null;
+    if (fsLast && fsLast !== cur) fsEmit(fsLast, false, false);
+    if (cur) fsEmit(cur, true, false);
+    fsLast = cur;
+  });
+  var fullscreen = { supported: fsSupported, toggle: fsToggle, isActive: fsIsActive, exit: fsExit };
+
+  /* ------------------------------------------------------------------ */
   /* Fetch helper: JSON in/out; toasts on failure and rethrows           */
   /* ------------------------------------------------------------------ */
   function api(path, body, opts) {
@@ -261,12 +352,15 @@
       blurb: 'Looks one move ahead: wins if it can, blocks if it must, else maximises the heuristic.' },
     minimax: { label: 'Minimax', short: 'Minimax', icon: 'tree', level: 3,
       param: { key: 'depth', label: 'Search depth', min: 1, max: 6, step: 1, def: 4, unit: 'ply' },
-      blurb: 'Explores every line of play to a fixed depth. Exact, but exponential.' },
+      blurb: 'Explores every line of play to a fixed depth. Exact within its depth limit, but exponential.' },
     alphabeta: { label: 'Alpha-Beta', short: 'α-β', icon: 'scissors', level: 4,
-      param: { key: 'depth', label: 'Search depth', min: 1, max: 8, step: 1, def: 5, unit: 'ply' },
-      blurb: 'Minimax with pruning and move ordering: same answer, far fewer nodes.' },
+      param: { key: 'depth', label: 'Search depth', min: 1, max: 8, step: 1, def: 6, unit: 'ply' },
+      blurb: 'Minimax with pruning and move ordering: same value, far fewer nodes.' },
     mcts: { label: 'MCTS', short: 'MCTS', icon: 'sparkles', level: 4,
-      param: { key: 'iterations', label: 'Simulations', min: 100, max: 10000, step: 100, def: 1500, unit: 'sims' },
+      /* 50..20,000 matches the engine's clamp (engine/api.py ITER_RANGE). The slider
+         moves through the stepped scale below rather than linearly. */
+      param: { key: 'iterations', label: 'Simulations', min: 50, max: 20000, def: 1500, unit: 'sims',
+        scale: [50, 100, 200, 300, 500, 750, 1000, 1500, 2000, 3000, 4000, 5000, 7500, 10000, 15000, 20000] },
       blurb: 'Monte Carlo Tree Search: random playouts guided by the UCT formula.' }
   };
   var AGENT_ORDER = ['random', 'greedy', 'minimax', 'alphabeta', 'mcts'];
@@ -314,10 +408,10 @@
     if (saved && saved.values) {
       Object.keys(saved.values).forEach(function (t) {
         var p = AGENTS[t] && AGENTS[t].param;
-        if (p) self.values[t] = clamp(Number(saved.values[t]) || p.def, p.min, p.max);
+        if (p) self.values[t] = snapParam(p, saved.values[t]);
       });
     } else if (opts.value != null && AGENTS[type].param) {
-      this.values[type] = opts.value;
+      this.values[type] = snapParam(AGENTS[type].param, opts.value);
     }
     var id = 'agent-' + (++pickerCount);
     root.innerHTML =
@@ -340,19 +434,39 @@
     this.select.value = type;
     this.select.addEventListener('change', function () { self._sync(); self._changed(); });
     this.range.addEventListener('input', function () {
-      self.values[self.select.value] = Number(self.range.value);
+      var p = AGENTS[self.select.value].param;
+      if (!p) return;
+      self.values[self.select.value] = p.scale ? p.scale[Number(self.range.value)] : Number(self.range.value);
       self._syncValue();
     });
     this.range.addEventListener('change', function () { self._changed(); });
     this._sync();
+  }
+  /* Parameters with a `scale` use a stepped slider: the range input holds an
+     index into the scale and the picker stores the real value. */
+  function scaleIndex(p, v) {
+    var best = 0;
+    for (var i = 1; i < p.scale.length; i++) {
+      if (Math.abs(p.scale[i] - v) < Math.abs(p.scale[best] - v)) best = i;
+    }
+    return best;
+  }
+  function snapParam(p, v) {
+    v = clamp(Number(v) || p.def, p.min, p.max);
+    return p.scale ? p.scale[scaleIndex(p, v)] : v;
   }
   AgentPicker.prototype._sync = function () {
     var meta = AGENTS[this.select.value];
     var p = meta.param;
     if (p) {
       this.range.disabled = false;
-      this.range.min = p.min; this.range.max = p.max; this.range.step = p.step;
-      this.range.value = this.values[this.select.value];
+      if (p.scale) {
+        this.range.min = 0; this.range.max = p.scale.length - 1; this.range.step = 1;
+        this.range.value = scaleIndex(p, this.values[this.select.value]);
+      } else {
+        this.range.min = p.min; this.range.max = p.max; this.range.step = p.step;
+        this.range.value = this.values[this.select.value];
+      }
       this.paramLabel.textContent = p.label;
     } else {
       this.range.disabled = true;
@@ -366,6 +480,8 @@
     var meta = AGENTS[this.select.value];
     var p = meta.param;
     this.paramValue.textContent = p ? (fmtInt(this.values[this.select.value]) + ' ' + p.unit) : 'none';
+    if (p) this.range.setAttribute('aria-valuetext', fmtInt(this.values[this.select.value]) + ' ' + p.unit);
+    else this.range.removeAttribute('aria-valuetext');
     updateRangeFill(this.range);
   };
   AgentPicker.prototype._changed = function () {
@@ -400,7 +516,7 @@
     canvas.width = W * dpr; canvas.height = H * dpr;
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     ctx.scale(dpr, dpr);
-    var colors = opts.colors || ['#8b5cf6', '#22d3ee', '#f43f5e', '#facc15', '#34d399', '#ffffff'];
+    var colors = opts.colors || ['#6a1b9a', '#b756f2', '#d9ccff', '#f43f5e', '#facc15', '#ffffff'];
     var parts = [];
     var count = opts.count || 180;
     for (var i = 0; i < count; i++) {
@@ -457,11 +573,15 @@
     els.forEach(function (el) { io.observe(el); });
   }
 
-  /* Ignore shortcuts while typing in a form control. */
-  function isTypingTarget(el) {
+  /* Ignore shortcuts while typing in a form control.
+     opts.allowSelect: a focused (closed) <select> does not count, so single-key
+     shortcuts such as 1-7 / N / U still work right after picking an opponent.
+     Pass it only for keys a select has no use for (not arrows or Space). */
+  function isTypingTarget(el, opts) {
     if (!el) return false;
     var tag = (el.tagName || '').toLowerCase();
-    return tag === 'input' && el.type !== 'range' && el.type !== 'radio' && el.type !== 'checkbox' || tag === 'textarea' || tag === 'select' || el.isContentEditable;
+    if (tag === 'select') return !(opts && opts.allowSelect);
+    return tag === 'input' && el.type !== 'range' && el.type !== 'radio' && el.type !== 'checkbox' || tag === 'textarea' || el.isContentEditable;
   }
 
   function setLoading(btn, loading) {
@@ -486,7 +606,7 @@
     isWinValue: isWinValue, isInfValue: isInfValue,
     emptyBoard: emptyBoard, cloneBoard: cloneBoard, dropRow: dropRow, countDiscs: countDiscs, findWin: findWin,
     icon: icon, theme: currentTheme, setTheme: setTheme,
-    toast: toast, api: api,
+    toast: toast, api: api, fullscreen: fullscreen,
     AGENTS: AGENTS, AGENT_ORDER: AGENT_ORDER, agentLabel: agentLabel, AgentPicker: AgentPicker,
     initRanges: initRanges, updateRangeFill: updateRangeFill,
     confetti: confetti, isTypingTarget: isTypingTarget, setLoading: setLoading

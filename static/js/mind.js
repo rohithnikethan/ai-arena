@@ -2,9 +2,59 @@
 (function () {
   'use strict';
   var A = window.Arena;
-  var COLORS = { pos: '#22d3ee', neg: '#f43f5e', neutral: '#8b90a8' };
+  var COLORS = { pos: '#b756f2', neg: '#0d9488', neutral: '#878c91' };
 
   function kindOf(type) { return type === 'mcts' ? 'mcts' : 'minimax'; }
+
+  /* ------------------------------------------------------------------ */
+  /* Alpha-beta bounds                                                   */
+  /* ------------------------------------------------------------------ */
+  /* Is a node's value exact, or only a bound? Returns 'upper' (true value <=
+     value), 'lower' (true value >= value) or null (exact / not applicable).
+     If the engine supplies node.bound we use it as is. Otherwise we apply the
+     fail-soft window rule to the [alpha, beta] window the node was searched
+     with (node.alpha / node.beta, root player's view, null = infinite):
+     value <= alpha means an upper bound, value >= beta a lower bound. The
+     column bars use the same rule on the root's children, so a "<=" in the
+     bars and in the tree always agree. Proven wins/losses are shown as is. */
+  function nodeBound(node, type) {
+    if (!node) return null;
+    if (Object.prototype.hasOwnProperty.call(node, 'bound')) {
+      return node.bound === 'upper' || node.bound === 'lower' ? node.bound : null;
+    }
+    if (type !== 'alphabeta' || node.terminal || node.pruned) return null;
+    var v = node.value;
+    if (v == null || isNaN(v) || A.isWinValue(v) || A.isInfValue(v)) return null;
+    var alpha = node.alpha == null ? -Infinity : node.alpha;
+    var beta = node.beta == null ? Infinity : node.beta;
+    if (v <= alpha) return 'upper';
+    if (v >= beta) return 'lower';
+    return null;
+  }
+  function boundPrefix(b) { return b === 'upper' ? '≤' : b === 'lower' ? '≥' : ''; }
+  /* Per-column bounds for the bars: from the engine if given, else from the
+     traced root children, else the old rule (alpha-beta: every non-chosen
+     column is an upper bound). */
+  function columnBounds(result, type) {
+    var out = [null, null, null, null, null, null, null];
+    if (!result || type !== 'alphabeta') return out;
+    var given = result.column_bounds;
+    if (Array.isArray(given)) {
+      for (var i = 0; i < 7; i++) out[i] = given[i] === 'upper' || given[i] === 'lower' ? given[i] : null;
+      return out;
+    }
+    var kids = result.tree && result.tree.children;
+    var scores = result.column_scores || [];
+    if (kids && kids.length) {
+      kids.forEach(function (k) { if (k.move != null && k.move >= 0 && k.move < 7) out[k.move] = nodeBound(k, type); });
+      return out;
+    }
+    for (var c = 0; c < 7; c++) {
+      var v = scores[c];
+      if (c !== result.column && v != null && !isNaN(v) && Math.abs(v) < 900000) out[c] = 'upper';
+    }
+    return out;
+  }
 
   /* ------------------------------------------------------------------ */
   /* Value -> colour                                                     */
@@ -84,6 +134,7 @@
     var finite = legal.filter(function (v) { return kind === 'mcts' || Math.abs(v) < 900000; });
     var lo = finite.length ? Math.min.apply(null, finite) : 0;
     var hi = finite.length ? Math.max.apply(null, finite) : 1;
+    var bounds = columnBounds(result, type);
     var described = [];
     this.bars.forEach(function (bar, c) {
       var v = scores[c];
@@ -111,13 +162,14 @@
       else sub.innerHTML = '&nbsp;';
       if (kind !== 'mcts' && v <= -900000) bar.classList.add('is-loss');
       if (c === chosen) bar.classList.add('is-best');
-      // alpha-beta cut-offs: non-chosen root scores are upper bounds, not exact values
-      var bound = type === 'alphabeta' && c !== chosen && Math.abs(v) < 900000;
-      if (bound) { bar.classList.add('is-bound'); label.textContent = '≤' + label.textContent; }
-      bar.title = 'Column ' + (c + 1) + ': ' + (bound ? 'at most ' : '') + A.fmtValueLong(v, kind) +
-        (bound ? ' (upper bound: pruning proved it cannot beat the chosen move)' : '') +
+      // alpha-beta cut-offs: such root scores are bounds, not exact values
+      var bound = bounds[c];
+      if (bound) { bar.classList.add('is-bound'); label.textContent = boundPrefix(bound) + label.textContent; }
+      bar.title = 'Column ' + (c + 1) + ': ' + (bound === 'upper' ? 'at most ' : bound === 'lower' ? 'at least ' : '') + A.fmtValueLong(v, kind) +
+        (bound === 'upper' ? ' (upper bound: pruning proved it cannot beat the chosen move)' : '') +
+        (bound === 'lower' ? ' (lower bound: the search stopped once it was good enough)' : '') +
         (kind === 'mcts' && visits[c] != null ? ' (' + A.fmtInt(visits[c]) + ' visits)' : '');
-      described.push('column ' + (c + 1) + ' ' + A.fmtValue(v, kind));
+      described.push('column ' + (c + 1) + ' ' + (bound === 'upper' ? 'at most ' : bound === 'lower' ? 'at least ' : '') + A.fmtValue(v, kind));
     });
     this.root.setAttribute('aria-label', 'Per-column evaluation: ' + described.join(', '));
   };
@@ -129,6 +181,21 @@
   /* Tree view (D3)                                                      */
   /* ------------------------------------------------------------------ */
   var treeCount = 0;
+  var allTrees = [];
+  var HINT = 'Scroll to zoom · drag to pan · click a node to expand';
+  var HINT_LONG = 'Zoom: mouse wheel or pinch. Pan: drag (two fingers on a touch screen). ' +
+    'Expand or collapse a node: click it, or focus it with Tab and press Enter. Arrow keys move between nodes.';
+  /* Every tree shares one Tree/Radial setting, so switching it in one panel
+     (Arena has two) updates the others at once. */
+  function setLayoutAll(layout) {
+    A.store.set('tree-layout', layout);
+    allTrees.forEach(function (t) {
+      t.box.querySelectorAll('input[type="radio"]').forEach(function (inp) { inp.checked = inp.value === layout; });
+      if (t.layout === layout) return;
+      t.layout = layout;
+      t.draw(true);
+    });
+  }
   function TreeView(box, opts) {
     opts = opts || {};
     this.box = box;
@@ -138,7 +205,9 @@
     this.rootPlayer = 1;
     this.expanded = {};
     this.uid = ++treeCount;
+    this.focusId = null;
     this._build();
+    allTrees.push(this);
   }
 
   TreeView.prototype._build = function () {
@@ -151,10 +220,12 @@
       '    <label><input type="radio" name="tree-layout-' + n + '" value="tree"' + (this.layout === 'tree' ? ' checked' : '') + '><span>Tree</span></label>' +
       '    <label><input type="radio" name="tree-layout-' + n + '" value="radial"' + (this.layout === 'radial' ? ' checked' : '') + '><span>Radial</span></label>' +
       '  </div>' +
-      '  <button type="button" class="icon-btn sm" data-fit title="Fit tree to view" aria-label="Fit tree to view">' + A.icon('maximize', 15) + '</button>' +
+      '  <button type="button" class="icon-btn sm tree-help" data-help title="' + HINT_LONG + '" aria-label="How to explore the tree">?</button>' +
+      '  <button type="button" class="icon-btn sm" data-fit title="Re-centre: fit the whole tree in view" aria-label="Fit tree to view">' + A.icon('fit', 15) + '</button>' +
+      '  <button type="button" class="icon-btn sm" data-expand title="Expand tree to full screen" aria-label="Expand tree to full screen" aria-pressed="false">' + A.icon('maximize', 15) + '</button>' +
       '</div>' +
-      '<div class="tree-hint" hidden>Scroll to zoom · drag to pan · click a node to expand</div>' +
-      '<svg class="tree-svg" role="img" aria-label="Search tree"></svg>' +
+      '<div class="tree-hint" hidden>' + HINT + '</div>' +
+      '<svg class="tree-svg" role="group" aria-label="Search tree" aria-roledescription="search tree"></svg>' +
       '<div class="tree-legend" hidden></div>' +
       '<div class="tree-tip" role="tooltip"></div>' +
       '<div class="empty" data-empty><span class="empty-icon">' + A.icon('tree', 22) + '</span><strong>No search tree yet</strong><span>The AI\'s game tree appears here after it moves.</span></div>';
@@ -165,13 +236,19 @@
     this.emptyEl = this.box.querySelector('[data-empty]');
     this.box.querySelectorAll('input[type="radio"]').forEach(function (inp) {
       inp.addEventListener('change', function () {
-        if (!inp.checked) return;
-        self.layout = inp.value;
-        A.store.set('tree-layout', self.layout);
-        self.draw(true);
+        if (inp.checked) setLayoutAll(inp.value);
       });
     });
     this.box.querySelector('[data-fit]').addEventListener('click', function () { self.fit(true); });
+    this.box.querySelector('[data-help]').addEventListener('click', function () {
+      A.toast(HINT_LONG, { title: 'Exploring the search tree', icon: 'tree', timeout: 7000 });
+    });
+    this.expandBtn = this.box.querySelector('[data-expand]');
+    // requestFullscreen must run synchronously inside the click.
+    this.expandBtn.addEventListener('click', function () { A.fullscreen.toggle(self.box); });
+    this.box.addEventListener('arena:fullscreen', function (e) {
+      if (e.target === self.box) self._syncExpand();
+    });
 
     if (!window.d3) {
       this.setEmpty('Tree view unavailable', 'The D3 library could not be loaded (offline?). Everything else still works.', true);
@@ -181,18 +258,39 @@
     this.g = this.svg.append('g');
     this.gLinks = this.g.append('g');
     this.gNodes = this.g.append('g');
-    this.zoom = d3.zoom().scaleExtent([0.12, 5]).on('zoom', function (e) {
-      self.g.attr('transform', e.transform);
-      self._hideTip();
-    });
+    /* Touch: a single finger scrolls the page (unless the tree is expanded to
+       full screen); pinch or a two-finger drag zooms and pans the tree. */
+    this.zoom = d3.zoom().scaleExtent([0.12, 5])
+      .filter(function (e) {
+        if (e.type === 'touchstart') return e.touches.length >= 2 || A.fullscreen.isActive(self.box);
+        return (!e.ctrlKey || e.type === 'wheel') && !e.button;
+      })
+      .on('zoom', function (e) {
+        self.g.attr('transform', e.transform);
+        if (e.sourceEvent) self._hideTip();
+      });
     this.svg.call(this.zoom).on('dblclick.zoom', null);
+    this.svgEl.addEventListener('keydown', function (e) { self._onKey(e); });
     if (window.ResizeObserver) {
-      var lastW = 0;
+      var lastW = 0, lastH = 0;
       new ResizeObserver(function () {
-        var w = self.box.clientWidth;
-        if (self.data && Math.abs(w - lastW) > 30) { lastW = w; self.fit(false); }
+        var w = self.box.clientWidth, h = self.box.clientHeight;
+        if (self.data && (Math.abs(w - lastW) > 30 || Math.abs(h - lastH) > 30)) { lastW = w; lastH = h; self.fit(false); }
       }).observe(this.box);
     }
+  };
+
+  TreeView.prototype._syncExpand = function () {
+    var on = A.fullscreen.isActive(this.box);
+    var label = on ? 'Exit full-screen tree (Esc)' : 'Expand tree to full screen';
+    this.box.classList.toggle('is-expanded', on);
+    this.expandBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    this.expandBtn.setAttribute('aria-label', label);
+    this.expandBtn.setAttribute('title', label);
+    this.expandBtn.innerHTML = A.icon(on ? 'minimize' : 'maximize', 15);
+    var self = this;
+    // refit once the new size has been laid out
+    requestAnimationFrame(function () { requestAnimationFrame(function () { self.fit(false); }); });
   };
 
   TreeView.prototype.setEmpty = function (title, msg, isError) {
@@ -305,7 +403,18 @@
       return 'tree-node' + (d.data.pruned ? ' is-pruned' : '') + (isOnBest(d) ? ' is-best' : '') + (hidden ? ' is-collapsed' : '');
     })
       .attr('transform', function (d) { var p = pos(d); return 'translate(' + p[0].toFixed(1) + ',' + p[1].toFixed(1) + ')'; })
-      .attr('tabindex', null);
+      .attr('role', 'button')
+      .attr('aria-label', function (d) { return self._nodeLabel(d); })
+      .attr('aria-expanded', function (d) {
+        if (radial || !d.data.children || !d.data.children.length) return null;
+        return d.children ? 'true' : 'false';
+      });
+    // roving tabindex: Tab enters the tree once, arrow keys move inside it
+    var ids = root.descendants().map(function (d) { return d.data.id; });
+    if (ids.indexOf(this.focusId) === -1) this.focusId = root.data.id;
+    all.attr('tabindex', function (d) { return d.data.id === self.focusId ? 0 : -1; });
+    this._visible = root.descendants();
+    this._pos = pos;
     all.select('circle')
       .attr('r', rScale)
       .attr('fill', function (d) { return d.depth === 0 ? 'url(#root-grad-' + self.uid + ')' : scoreColor(nodeScore(d.data, self.kind, self.rootPlayer, self.scale)); });
@@ -318,7 +427,8 @@
         if (radial && d.depth > 1) return '';
         var col = d.data.move != null ? 'c' + (d.data.move + 1) : '';
         if (radial || d.children) return col;
-        var v = mcts ? (d.data.visits != null ? A.fmtCompact(d.data.visits) + 'v' : '') : (d.data.value != null ? A.fmtValue(d.data.value, 'minimax') : '');
+        var v = mcts ? (d.data.visits != null ? A.fmtCompact(d.data.visits) + 'v' : '')
+          : (d.data.value != null ? boundPrefix(nodeBound(d.data, self.type)) + A.fmtValue(d.data.value, 'minimax') : '');
         var hidden = d.data.children && d.data.children.length && !d.children ? '  ▸' + d.data.children.length : '';
         return col + (v ? ' · ' + v : '') + hidden;
       });
@@ -330,10 +440,11 @@
     all.on('mouseenter', function (e, d) { self._showTip(e, d); })
       .on('mousemove', function (e, d) { self._moveTip(e); })
       .on('mouseleave', function () { self._hideTip(); })
+      .on('focus', function (e, d) { self.focusId = d.data.id; self._showTip(null, d, this); })
+      .on('blur', function () { self._hideTip(); })
       .on('click', function (e, d) {
-        if (radial || !d.data.children || !d.data.children.length) return;
-        self.expanded[d.data.id] = !self.expanded[d.data.id];
-        self.draw(false);
+        self.focusId = d.data.id;
+        self._toggle(d);
       });
 
     this._ensureDefs();
@@ -356,9 +467,9 @@
     if (this.svg.select('defs').size()) return;
     var defs = this.svg.insert('defs', ':first-child');
     var g = defs.append('radialGradient').attr('id', 'root-grad-' + this.uid).attr('cx', '35%').attr('cy', '30%');
-    g.append('stop').attr('offset', '0%').attr('stop-color', '#e9d5ff');
-    g.append('stop').attr('offset', '55%').attr('stop-color', '#8b5cf6');
-    g.append('stop').attr('offset', '100%').attr('stop-color', '#4338ca');
+    g.append('stop').attr('offset', '0%').attr('stop-color', '#f3e8ff');
+    g.append('stop').attr('offset', '55%').attr('stop-color', '#a444e8');
+    g.append('stop').attr('offset', '100%').attr('stop-color', '#5a1582');
   };
 
   TreeView.prototype.fit = function (animated) {
@@ -370,7 +481,8 @@
     if (!bbox || !bbox.width && !bbox.height) return;
     var pad = 36;
     var scale = Math.min((w - pad * 2) / Math.max(bbox.width, 1), (h - pad * 2 - 30) / Math.max(bbox.height, 1));
-    scale = Math.max(0.12, Math.min(this.layout === 'radial' ? 1.6 : 1.25, scale));
+    var maxScale = (this.layout === 'radial' ? 1.6 : 1.25) * (A.fullscreen.isActive(this.box) ? 1.6 : 1);
+    scale = Math.max(0.12, Math.min(maxScale, scale));
     var tx = w / 2 - (bbox.x + bbox.width / 2) * scale;
     var ty = (h - 24) / 2 - (bbox.y + bbox.height / 2) * scale;
     var t = d3.zoomIdentity.translate(tx, ty).scale(scale);
@@ -378,7 +490,78 @@
     else this.svg.call(this.zoom.transform, t);
   };
 
-  TreeView.prototype._showTip = function (e, d) {
+  TreeView.prototype._toggle = function (d) {
+    if (this.layout === 'radial' || !d.data.children || !d.data.children.length) return false;
+    this.expanded[d.data.id] = !this.expanded[d.data.id];
+    this.draw(false);
+    return true;
+  };
+
+  TreeView.prototype._nodeLabel = function (d) {
+    var n = d.data;
+    var parts = [d.depth === 0 ? 'Current position' : 'Column ' + (n.move + 1) + ', ply ' + d.depth];
+    if (this.kind === 'mcts') {
+      if (n.visits != null) parts.push(A.fmtInt(n.visits) + ' visits');
+      if (n.visits) parts.push('win rate ' + Math.round(n.wins / n.visits * 100) + '%');
+    } else if (n.value != null) {
+      var b = nodeBound(n, this.type);
+      parts.push('value ' + (b === 'upper' ? 'at most ' : b === 'lower' ? 'at least ' : '') + A.fmtValueLong(n.value, 'minimax') +
+        (b ? (b === 'upper' ? ' (upper bound)' : ' (lower bound)') : ''));
+    }
+    if (n.pruned) parts.push('pruned');
+    if (isOnBest(d) && d.depth > 0) parts.push('on the chosen line');
+    if (n.children && n.children.length) parts.push(n.children.length + ' children' + (this.layout === 'radial' ? '' : d.children ? ', expanded' : ', collapsed'));
+    return parts.join(', ');
+  };
+
+  TreeView.prototype._focusNode = function (id) {
+    this.focusId = id;
+    var el = null;
+    this.gNodes.selectAll('g.tree-node').attr('tabindex', function (d) {
+      if (d.data.id === id) el = this;
+      return d.data.id === id ? 0 : -1;
+    });
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    // bring the node into view if it is outside the visible area
+    var r = el.getBoundingClientRect(), b = this.box.getBoundingClientRect();
+    if (r.left < b.left + 20 || r.right > b.right - 20 || r.top < b.top + 50 || r.bottom > b.bottom - 50) {
+      var d = d3.select(el).datum(), p = this._pos(d);
+      this.svg.call(this.zoom.translateTo, p[0], p[1]);
+      this._showTip(null, d, el);
+    }
+  };
+
+  TreeView.prototype._onKey = function (e) {
+    var t = e.target.closest && e.target.closest('g.tree-node');
+    if (!t || !this._visible) return;
+    var d = d3.select(t).datum(), list = this._visible, i = list.indexOf(d);
+    var target = null;
+    switch (e.key) {
+      case 'Enter': case ' ':
+        e.preventDefault();
+        if (this._toggle(d)) this._focusNode(d.data.id);
+        return;
+      case 'ArrowDown': target = list[i + 1]; break;
+      case 'ArrowUp': target = list[i - 1]; break;
+      case 'ArrowRight':
+        if (d.children && d.children.length) target = d.children[0];
+        else if (this._toggle(d)) { e.preventDefault(); this._focusNode(d.data.id); return; }
+        break;
+      case 'ArrowLeft':
+        if (d.children && this.layout !== 'radial' && d.depth > 0) { e.preventDefault(); this._toggle(d); this._focusNode(d.data.id); return; }
+        target = d.parent;
+        break;
+      case 'Home': target = list[0]; break;
+      case 'End': target = list[list.length - 1]; break;
+      case 'Escape': this._hideTip(); return;
+      default: return;
+    }
+    e.preventDefault();
+    if (target) this._focusNode(target.data.id);
+  };
+
+  TreeView.prototype._showTip = function (e, d, el) {
     var n = d.data, mcts = this.kind === 'mcts';
     var player = n.player === 2 ? 2 : 1;
     var title = d.depth === 0 ? 'Current position' : 'Column ' + (n.move + 1);
@@ -389,22 +572,29 @@
       if (n.wins != null) rows.push(['Wins', (Math.round(n.wins * 10) / 10).toLocaleString('en-US')]);
       if (n.visits) rows.push(['Win rate', Math.round(n.wins / n.visits * 100) + '%']);
     } else {
-      rows.push(['Value', n.value != null ? A.fmtValueLong(n.value, 'minimax') : '—']);
+      var nb = nodeBound(n, this.type);
+      rows.push(['Value', n.value != null ? (nb ? boundPrefix(nb) + ' ' : '') + A.fmtValueLong(n.value, 'minimax') + (nb ? (nb === 'upper' ? ' (upper bound)' : ' (lower bound)') : '') : '—']);
       if (this.type === 'alphabeta' || n.alpha != null || n.beta != null) {
         rows.push(['α (alpha)', n.alpha != null ? A.fmtValue(n.alpha, 'minimax') : '−∞']);
         rows.push(['β (beta)', n.beta != null ? A.fmtValue(n.beta, 'minimax') : '+∞']);
       }
     }
     if (n.children && n.children.length) rows.push(['Children', n.children.length]);
-    var note = n.pruned ? 'Pruned: α ≥ β, so this branch cannot change the decision.'
+    var nbound = mcts ? null : nodeBound(n, this.type);
+    var note = n.pruned ? 'Pruned: α ≥ β, so this branch cannot change the value backed up to the root.'
       : n.terminal ? 'Terminal position: the game ends here.'
+        : nbound === 'upper' ? 'Upper bound: a cut-off below proved this line is worth at most this much, which is all the search needed to know.'
+        : nbound === 'lower' ? 'Lower bound: a cut-off below proved this line is worth at least this much, which is all the search needed to know.'
         : isOnBest(d) && d.depth > 0 ? 'On the principal (chosen) line.' : '';
     this.tip.innerHTML =
       '<div class="tt-title">' + (d.depth > 0 ? '<span class="mini-disc p' + player + '"></span>' : A.icon('cpu', 14)) + A.escapeHtml(title) + '</div>' +
       '<dl>' + rows.map(function (r) { return '<dt>' + A.escapeHtml(r[0]) + '</dt><dd>' + A.escapeHtml(r[1]) + '</dd>'; }).join('') + '</dl>' +
       (note ? '<div class="tt-note">' + A.escapeHtml(note) + '</div>' : '');
     this.tip.classList.add('is-visible');
-    this._moveTip(e);
+    if (e) { this._moveTip(e); return; }
+    // keyboard focus: place the tooltip next to the node
+    var r = (el || this.box).getBoundingClientRect();
+    this._moveTip({ clientX: r.right, clientY: r.top + r.height / 2 });
   };
   TreeView.prototype._moveTip = function (e) {
     var rect = this.box.getBoundingClientRect();
@@ -555,6 +745,7 @@
   TrackedMindPanel._all = MindPanel._all;
 
   window.MindPanel = TrackedMindPanel;
+  window.MindPanel.nodeBound = nodeBound;
   window.ColumnBars = ColumnBars;
   window.TreeView = TreeView;
 })();
