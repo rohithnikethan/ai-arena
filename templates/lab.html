@@ -26,7 +26,7 @@
       <form class="lab-form" id="match-form" novalidate>
         <div class="picker-pair" id="lab-a"></div>
         <div class="picker-pair" id="lab-b"></div>
-        <div class="field-stack" style="display:flex;flex-direction:column;gap:var(--s-3);min-width:0">
+        <div class="lab-sliders">
           <div class="field">
             <label class="field-label" for="games"><span>Games</span><span class="field-value" id="games-value">10</span></label>
             <input type="range" id="games" min="2" max="50" step="2" value="10">
@@ -39,7 +39,7 @@
         <button class="btn btn-primary" type="submit" id="btn-match">{{ icon('play', 16) }}Run tournament</button>
         <button class="btn" type="button" id="btn-match-cancel" hidden>{{ icon('close', 16) }}Cancel</button>
       </form>
-      <p class="field-hint" id="opening-hint" style="margin:var(--s-2) 0 0">Deterministic agents would replay the same game every time, so each game starts from a few random moves; each opening is played twice with colours swapped.</p>
+      <p class="field-hint lab-form-hint" id="opening-hint">Deterministic agents would replay the same game every time, so each game starts from a few random moves; each opening is played twice with colours swapped.</p>
 
       <div class="summary-row" id="match-summary">
         <div class="chip"><div class="chip-label"><span class="mini-disc" style="background:#9d41d2"></span>Agent A wins</div><div class="chip-value" id="sum-a">—</div></div>

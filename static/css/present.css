@@ -436,6 +436,9 @@ body.page-present .site-main { padding: 0; }
 }
 .deck.is-fs .deck-home span { display: none; }
 .deck.is-fs.is-idle .deck-bar { opacity: 0; pointer-events: none; }
+/* One slide counter at a time: the on-slide count only shows while the control bar is hidden. */
+.stage-foot [data-stage-count] { display: none; }
+.deck.is-fs.is-idle .stage-foot [data-stage-count] { display: inline; }
 .deck.is-fs.is-idle, .deck.is-fs.is-idle .stage { cursor: none; }
 
 /* ---------- Reduced motion ---------- */

@@ -744,14 +744,21 @@ input[type="range"]:disabled { opacity: .4; cursor: not-allowed; }
    ========================================================================== */
 .lab-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-5); }
 .lab-form { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) minmax(0, 1fr) auto; gap: var(--s-4); align-items: end; }
+/* Tournament: agent pickers side by side, then the sliders beside the run/cancel button. */
+.lab-form:not(.is-prune) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.lab-form:not(.is-prune) > .lab-sliders { grid-column: 1; }
+.lab-form:not(.is-prune) > .btn { grid-column: 2; justify-self: start; }
+.lab-sliders { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s-4); min-width: 0; }
+.lab-sliders .field-label, .lab-sliders .field-value { white-space: nowrap; }
+.lab-form-hint { margin: var(--s-2) 0 0; }
 .lab-form.is-prune { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto; align-items: start; }
 .lab-form.is-prune .btn { margin-top: 22px; }
 .lab-form .field + .field { margin-top: 0; }
 .picker-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s-3); align-items: end; }
 .picker-pair .field + .field { margin-top: 0; }
 .picker-pair .field-hint { display: none; }
-@media (max-width: 1000px) { .lab-form, .lab-form.is-prune { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .lab-form .btn { grid-column: 1 / -1; margin-top: 0; } .lab-form .picker-pair { grid-column: 1 / -1; } }
-@media (max-width: 520px) { .lab-form, .lab-form.is-prune { grid-template-columns: minmax(0, 1fr); } .picker-pair { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1000px) { .lab-form, .lab-form.is-prune { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .lab-form .btn { grid-column: 1 / -1; margin-top: 0; } .lab-form .picker-pair, .lab-form:not(.is-prune) > .lab-sliders { grid-column: 1 / -1; } .lab-form:not(.is-prune) > .btn { grid-column: 1 / -1; justify-self: stretch; } }
+@media (max-width: 520px) { .lab-form, .lab-form.is-prune { grid-template-columns: minmax(0, 1fr); } .picker-pair, .lab-sliders { grid-template-columns: minmax(0, 1fr); } }
 .chart-card { position: relative; }
 .lab-results { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: var(--s-4); margin-top: var(--s-5); }
 @media (max-width: 960px) { .lab-results { grid-template-columns: minmax(0, 1fr); } }
